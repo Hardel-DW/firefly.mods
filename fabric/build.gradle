@@ -1,0 +1,67 @@
+plugins {
+	id 'net.fabricmc.fabric-loom'
+}
+
+base {
+	archivesName = "Firefly-fabric-${minecraftMajor}"
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+
+	testImplementation platform("org.junit:junit-bom:5.12.2")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testImplementation "net.fabricmc:fabric-loader-junit:${rootProject.loader_version}"
+	testImplementation rootProject.project(':common').sourceSets.test.output
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+loom {
+	accessWidenerPath = project(':common').file('src/main/resources/firefly.accesswidener')
+
+	runs {
+		configureEach {
+			vmArg "-ea"
+			vmArg "-XX:+UseZGC"
+		}
+
+		client {
+			vmArg "-Xmx6G"
+		}
+
+		server {
+			vmArg "-Xmx4G"
+		}
+	}
+}
+
+tasks.named('compileJava') {
+	source(project(':common').sourceSets.main.allJava)
+}
+
+tasks.named('sourcesJar') {
+	from(project(':common').sourceSets.main.allSource)
+}
+
+test {
+	useJUnitPlatform()
+}
+
+processResources {
+	from(project(':common').sourceSets.main.resources)
+	inputs.property 'version', project.version
+
+	filesMatching('fabric.mod.json') {
+		expand version: project.version
+	}
+}
+
+publishing {
+	publications {
+		create('mavenJava', MavenPublication) {
+			artifactId = "firefly-fabric-${minecraftMajor}"
+			from components.java
+		}
+	}
+}

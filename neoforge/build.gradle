@@ -1,0 +1,92 @@
+plugins {
+	id 'net.neoforged.moddev'
+}
+
+base {
+	archivesName = "Firefly-neoforge-${minecraftMajor}"
+}
+
+def accessTransformer = tasks.register('accessTransformer') {
+	def widener = project(':common').file('src/main/resources/firefly.accesswidener')
+	def output = layout.buildDirectory.file('generated/accesstransformer/META-INF/accesstransformer.cfg')
+	inputs.file(widener)
+	outputs.file(output)
+	doLast {
+		def lines = widener.readLines().findAll { it.startsWith('accessible') || it.startsWith('mutable') }.collect { line ->
+			def parts = line.split(/\s+/)
+			def owner = parts[2].replace('/', '.')
+			if (parts[0] == 'mutable') {
+				return "public-f ${owner} ${parts[3]}"
+			}
+
+			switch (parts[1]) {
+				case 'class': return "public ${owner}"
+				case 'field': return "public ${owner} ${parts[3]}"
+				default: return "public ${owner} ${parts[3]}${parts[4]}"
+			}
+		}
+		def file = output.get().asFile
+		file.parentFile.mkdirs()
+		file.text = lines.join('\n') + '\n'
+	}
+}
+
+sourceSets.main.resources.srcDir(accessTransformer.map { layout.buildDirectory.dir('generated/accesstransformer').get() })
+
+neoForge {
+	version = rootProject.neoforge_version
+	accessTransformers.from(accessTransformer.map { it.outputs.files.singleFile })
+
+	mods {
+		firefly {
+			sourceSet sourceSets.main
+		}
+	}
+
+	runs {
+		configureEach {
+			jvmArguments.addAll('-ea', '-XX:+UseZGC')
+			loadedMods = [mods.firefly]
+		}
+
+		client {
+			client()
+			jvmArguments.add('-Xmx6G')
+		}
+
+		server {
+			server()
+			programArguments.add('nogui')
+			jvmArguments.add('-Xmx4G')
+		}
+	}
+}
+
+tasks.named('compileJava') {
+	source(project(':common').sourceSets.main.allJava)
+}
+
+tasks.named('sourcesJar') {
+	from(project(':common').sourceSets.main.allSource)
+}
+
+processResources {
+	from(project(':common').sourceSets.main.resources) {
+		exclude '*.accesswidener'
+	}
+
+	inputs.property 'version', project.version
+	inputs.property 'minecraft', rootProject.minecraft_version
+	filesMatching('META-INF/neoforge.mods.toml') {
+		expand version: project.version, minecraft_range: "[${rootProject.minecraft_version}]"
+	}
+}
+
+publishing {
+	publications {
+		create('mavenJava', MavenPublication) {
+			artifactId = "firefly-neoforge-${minecraftMajor}"
+			from components.java
+		}
+	}
+}

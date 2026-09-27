@@ -1,0 +1,43 @@
+modLoader = "javafml"
+loaderVersion = "*"
+license = "All-Rights-Reserved"
+
+[[mods]]
+modId = "firefly"
+version = "${version}"
+displayName = "Firefly"
+displayTest = "IGNORE_ALL_VERSION"
+authors = "Hardel"
+description = '''
+Multithreaded light engine for the server. The light stays identical to vanilla.
+'''
+
+[[dependencies.firefly]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.firefly]]
+modId = "moonrise"
+type = "incompatible"
+versionRange = "*"
+
+[[dependencies.firefly]]
+modId = "scalablelux"
+type = "incompatible"
+versionRange = "*"
+
+[[dependencies.firefly]]
+modId = "starlight"
+type = "incompatible"
+versionRange = "*"
+
+[[dependencies.firefly]]
+modId = "phosphor"
+type = "incompatible"
+versionRange = "*"
+
+[[mixins]]
+config = "firefly.mixins.json"

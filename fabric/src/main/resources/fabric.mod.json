@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "firefly",
+	"version": "${version}",
+	"name": "Firefly",
+	"description": "Multithreaded light engine for the server. The light stays identical to vanilla.",
+	"authors": [
+		"Hardel"
+	],
+	"license": "All-Rights-Reserved",
+	"accessWidener": "firefly.accesswidener",
+	"environment": "*",
+	"mixins": [
+		"firefly.mixins.json"
+	],
+	"breaks": {
+		"moonrise": "*",
+		"scalablelux": "*",
+		"starlight": "*",
+		"phosphor": "*"
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25"
+	}
+}
