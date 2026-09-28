@@ -12,6 +12,7 @@ import fr.hardel.firefly.storage.QueuedSections;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -132,9 +133,16 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
-        CompletableFuture<Void> done = new CompletableFuture<>();
-        request(chunkX, chunkZ, work -> work.onComplete(done, () -> done.complete(null)));
-        return done;
+        List<CompletableFuture<Void>> writers = new ArrayList<>();
+        request(chunkX, chunkZ, center -> ChunkPos.rangeClosed(new ChunkPos(chunkX, chunkZ), LevelLight.WRITE_RADIUS)
+            .map(pos -> pos.x() == chunkX && pos.z() == chunkZ ? center : this.pending.get(pos.pack()))
+            .filter(Objects::nonNull)
+            .forEach(work -> {
+                CompletableFuture<Void> done = new CompletableFuture<>();
+                work.onComplete(done, () -> done.complete(null));
+                writers.add(done);
+            }));
+        return CompletableFuture.allOf(writers.toArray(CompletableFuture[]::new));
     }
 
     @Override
