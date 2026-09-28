@@ -5,9 +5,6 @@ import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.QueuedSections;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.longs.LongConsumer;
-import it.unimi.dsi.fastutil.longs.LongIterator;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.Arrays;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -288,8 +285,12 @@ final class LightWindow {
         return this.chunkZ - RADIUS + chunkIndex % CHUNKS;
     }
 
-    private long sectionNode(int chunkIndex, int section) {
-        return SectionPos.asLong(chunkX(chunkIndex), this.minSection + section, chunkZ(chunkIndex));
+    private static int below(int local) {
+        return local == 0 ? -1 : 0;
+    }
+
+    private static int above(int local) {
+        return local == 15 ? 1 : 0;
     }
 
     final class Layer {
@@ -298,10 +299,10 @@ final class LightWindow {
         private final boolean[] owned;
         private final boolean[] removing;
         private final boolean[] changed;
-        private final boolean[] affectedInside;
+        private final int notifiedSections = LightWindow.this.sections + 2;
+        private final boolean[] notified = new boolean[CHUNKS * CHUNKS * this.notifiedSections];
         private final IntArrayList changes = new IntArrayList();
-        private final LongOpenHashSet affected = new LongOpenHashSet();
-        private final LongConsumer affect = this.affected::add;
+        private final IntArrayList notifications = new IntArrayList();
 
         private Layer(LightLayer type) {
             int slots = CHUNKS * CHUNKS * LightWindow.this.sections;
@@ -310,7 +311,6 @@ final class LightWindow {
             this.owned = new boolean[slots];
             this.removing = new boolean[slots];
             this.changed = new boolean[slots];
-            this.affectedInside = new boolean[slots];
             for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
                 LightColumn column = columnIfPresent(chunkIndex);
                 for (int section = 0; column != null && section < LightWindow.this.sections; section++) {
@@ -341,15 +341,14 @@ final class LightWindow {
             int x = localX(cell);
             int y = localY(cell);
             int z = localZ(cell);
-            if (x == 0 || x == 15 || y == 0 || y == 15 || z == 0 || z == 15) {
-                SectionPos.aroundAndAtBlockPos(blockX(cell), blockY(cell), blockZ(cell), this.affect);
-                return;
-            }
-
-            int slot = slot(cell);
-            if (!this.affectedInside[slot]) {
-                this.affectedInside[slot] = true;
-                this.affected.add(sectionNode(slot / LightWindow.this.sections, slot % LightWindow.this.sections));
+            int chunkIndex = chunkIndex(cell);
+            int section = sectionIndex(cell);
+            for (int dx = below(x); dx <= above(x); dx++) {
+                for (int dz = below(z); dz <= above(z); dz++) {
+                    for (int dy = below(y); dy <= above(y); dy++) {
+                        notifyLater(chunkIndex + dx * CHUNKS + dz, section + dy);
+                    }
+                }
             }
         }
 
@@ -462,7 +461,7 @@ final class LightWindow {
             this.current[slot] = data;
             this.owned[slot] = !Nibbles.shared(data);
             markChanged(slot);
-            affectAround(chunkIndex, section);
+            notifyAround(chunkIndex, section);
         }
 
         private byte[] freshData(int chunkIndex, int section) {
@@ -482,14 +481,21 @@ final class LightWindow {
             return enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
         }
 
-        private void affectAround(int chunkIndex, int section) {
-            long node = sectionNode(chunkIndex, section);
-            for (int dz = -1; dz <= 1; dz++) {
-                for (int dx = -1; dx <= 1; dx++) {
+        private void notifyAround(int chunkIndex, int section) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
                     for (int dy = -1; dy <= 1; dy++) {
-                        this.affected.add(SectionPos.offset(node, dx, dy, dz));
+                        notifyLater(chunkIndex + dx * CHUNKS + dz, section + dy);
                     }
                 }
+            }
+        }
+
+        private void notifyLater(int chunkIndex, int section) {
+            int index = chunkIndex * this.notifiedSections + section + 1;
+            if (!this.notified[index]) {
+                this.notified[index] = true;
+                this.notifications.add(index);
             }
         }
 
@@ -510,9 +516,11 @@ final class LightWindow {
                 column(slot / LightWindow.this.sections).sections(this.type).publish(slot % LightWindow.this.sections, this.current[slot]);
             }
 
-            LongIterator nodes = this.affected.iterator();
-            while (nodes.hasNext()) {
-                LightWindow.this.source.onLightUpdate(this.type, SectionPos.of(nodes.nextLong()));
+            for (int index = 0; index < this.notifications.size(); index++) {
+                int notification = this.notifications.getInt(index);
+                int chunkIndex = notification / this.notifiedSections;
+                int section = LightWindow.this.minSection + notification % this.notifiedSections - 1;
+                LightWindow.this.source.onLightUpdate(this.type, SectionPos.of(chunkX(chunkIndex), section, chunkZ(chunkIndex)));
             }
         }
 
