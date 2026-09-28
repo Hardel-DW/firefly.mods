@@ -482,7 +482,7 @@ final class LightWindow {
             this.current[slot] = data;
             this.owned[slot] = queuedData == null && !Nibbles.shared(data);
             markChanged(slot);
-            notifyAround(chunkIndex, section);
+            notifyLater(chunkIndex, section);
         }
 
         private byte[] freshData(int chunkIndex, int section) {
@@ -500,16 +500,6 @@ final class LightWindow {
             }
 
             return enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
-        }
-
-        private void notifyAround(int chunkIndex, int section) {
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    for (int dy = -1; dy <= 1; dy++) {
-                        notifyLater(chunkIndex + dx * CHUNKS + dz, section + dy);
-                    }
-                }
-            }
         }
 
         private void notifyLater(int chunkIndex, int section) {
