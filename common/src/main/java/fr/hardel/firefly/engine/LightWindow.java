@@ -5,7 +5,9 @@ import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.QueuedSections;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -303,6 +305,7 @@ final class LightWindow {
         private final boolean[] notified = new boolean[CHUNKS * CHUNKS * this.notifiedSections];
         private final IntArrayList changes = new IntArrayList();
         private final IntArrayList notifications = new IntArrayList();
+        private final List<Dequeued> dequeued = new ArrayList<>();
 
         private Layer(LightLayer type) {
             int slots = CHUNKS * CHUNKS * LightWindow.this.sections;
@@ -413,9 +416,14 @@ final class LightWindow {
             int chunkIndex = slot / LightWindow.this.sections;
             int section = slot % LightWindow.this.sections;
             QueuedSections.Column column = LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
-            byte[] queuedData = column == null ? null : column.take(this.type, section);
-            if (column != null && column.retained()) {
-                column.put(this.type, section, queuedData != null ? queuedData : this.current[slot]);
+            byte[] queuedData = column == null ? null : column.get(this.type, section);
+            boolean retained = column != null && column.retained();
+            if (retained && queuedData == null) {
+                column.put(this.type, section, this.current[slot]);
+            }
+
+            if (!retained && queuedData != null) {
+                this.dequeued.add(new Dequeued(slot, queuedData));
             }
 
             this.removing[slot] = false;
@@ -431,10 +439,14 @@ final class LightWindow {
 
             for (int section = 0; section < LightWindow.this.sections; section++) {
                 int slot = chunkIndex * LightWindow.this.sections + section;
-                byte[] queuedData = data(slot) == null ? null : column.take(this.type, section);
+                byte[] queuedData = data(slot) == null ? null : column.get(this.type, section);
+                if (queuedData != null) {
+                    this.dequeued.add(new Dequeued(slot, queuedData));
+                }
+
                 if (queuedData != null && queuedData != this.current[slot]) {
                     this.current[slot] = queuedData;
-                    this.owned[slot] = !Nibbles.shared(queuedData);
+                    this.owned[slot] = false;
                     markChanged(slot);
                 }
             }
@@ -516,6 +528,14 @@ final class LightWindow {
                 column(slot / LightWindow.this.sections).sections(this.type).publish(slot % LightWindow.this.sections, this.current[slot]);
             }
 
+            for (Dequeued entry : this.dequeued) {
+                int chunkIndex = entry.slot() / LightWindow.this.sections;
+                QueuedSections.Column column = LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
+                if (column != null) {
+                    column.remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
+                }
+            }
+
             for (int index = 0; index < this.notifications.size(); index++) {
                 int notification = this.notifications.getInt(index);
                 int chunkIndex = notification / this.notifiedSections;
@@ -527,5 +547,8 @@ final class LightWindow {
         private int slot(int cell) {
             return chunkIndex(cell) * LightWindow.this.sections + sectionIndex(cell);
         }
+    }
+
+    private record Dequeued(int slot, byte[] data) {
     }
 }

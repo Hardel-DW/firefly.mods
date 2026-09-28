@@ -54,10 +54,10 @@ public final class QueuedSections {
             return data(layer)[section];
         }
 
-        public synchronized byte @Nullable [] take(LightLayer layer, int section) {
-            byte[] data = data(layer)[section];
-            data(layer)[section] = null;
-            return data;
+        public synchronized void remove(LightLayer layer, int section, byte[] data) {
+            if (data(layer)[section] == data) {
+                data(layer)[section] = null;
+            }
         }
 
         public synchronized void put(LightLayer layer, int section, byte @Nullable [] data) {
