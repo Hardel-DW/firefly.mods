@@ -146,6 +146,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     @Override
     public void tryScheduleUpdate() {
         submitPending();
+        super.tryScheduleUpdate();
     }
 
     @Override
