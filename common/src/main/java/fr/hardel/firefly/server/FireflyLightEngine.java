@@ -10,6 +10,8 @@ import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.QueuedSections;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -40,6 +42,8 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final @Nullable LightReader sky;
     private final LightExecutor executor;
     private final Long2ObjectOpenHashMap<ChunkWork> pending = new Long2ObjectOpenHashMap<>();
+    private final List<ChunkWork> unsubmitted = new ArrayList<>();
+    private final Object submitting = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
 
     public FireflyLightEngine(LightChunkGetter source, ChunkMap chunkMap, boolean hasSkyLight, ConsecutiveExecutor consecutiveExecutor, ChunkTaskDispatcher dispatcher,
@@ -92,7 +96,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         ChunkPos pos = chunk.getPos();
         CompletableFuture<ChunkAccess> lit = new CompletableFuture<>();
         LevelChunkSection[] sections = chunk.getSections();
-        update(pos.x(), pos.z(), work -> {
+        request(pos.x(), pos.z(), work -> {
             for (int index = 0; index < sections.length; index++) {
                 if (!sections[index].hasOnlyAir()) {
                     work.sectionStatus(index + 1, false);
@@ -113,7 +117,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         ChunkPos pos = chunk.getPos();
         CompletableFuture<ChunkAccess> lit = new CompletableFuture<>();
         chunk.setLightCorrect(false);
-        update(pos.x(), pos.z(), work -> {
+        request(pos.x(), pos.z(), work -> {
             if (!lighted) {
                 work.propagateLightSources();
             }
@@ -129,14 +133,19 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
         CompletableFuture<Void> done = new CompletableFuture<>();
-        update(chunkX, chunkZ, work -> work.onComplete(done, () -> done.complete(null)));
+        request(chunkX, chunkZ, work -> work.onComplete(done, () -> done.complete(null)));
         return done;
     }
 
     @Override
     protected void updateChunkStatus(ChunkPos pos) {
         this.queued.clear(pos.x(), pos.z());
-        update(pos.x(), pos.z(), ChunkWork::unload);
+        request(pos.x(), pos.z(), ChunkWork::unload);
+    }
+
+    @Override
+    public void tryScheduleUpdate() {
+        submitPending();
     }
 
     @Override
@@ -168,27 +177,39 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         return column.sections(LightLayer.BLOCK).enabled() && (this.sky == null || column.sections(LightLayer.SKY).enabled());
     }
 
-    private void update(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
-        ChunkWork created = addToPending(chunkX, chunkZ, change);
-        if (created != null) {
-            this.executor.execute(this.source, chunkX, chunkZ, LevelLight.RADIUS, () -> run(created));
-        }
+    private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
+        update(chunkX, chunkZ, change);
+        submitPending();
     }
 
-    private @Nullable ChunkWork addToPending(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
+    private void update(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
         long chunk = ChunkPos.pack(chunkX, chunkZ);
         synchronized (this.pending) {
             ChunkWork work = this.pending.get(chunk);
             if (work != null) {
                 change.accept(work);
-                return null;
+                return;
             }
 
             ChunkWork created = new ChunkWork(chunkX, chunkZ);
             change.accept(created);
             this.pending.put(chunk, created);
+            this.unsubmitted.add(created);
             this.outstanding.incrementAndGet();
-            return created;
+        }
+    }
+
+    private void submitPending() {
+        synchronized (this.submitting) {
+            takeUnsubmitted().forEach(work -> this.executor.execute(this.source, work.chunkX(), work.chunkZ(), LevelLight.RADIUS, () -> run(work)));
+        }
+    }
+
+    private List<ChunkWork> takeUnsubmitted() {
+        synchronized (this.pending) {
+            List<ChunkWork> works = List.copyOf(this.unsubmitted);
+            this.unsubmitted.clear();
+            return works;
         }
     }
 
