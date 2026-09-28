@@ -3,14 +3,15 @@ package fr.hardel.firefly.engine;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.LightLayer;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
@@ -37,43 +38,41 @@ final class LightOracle {
     }
 
     static <E extends LevelLightEngine> List<String> differences(Engine<E> tested, boolean missing) {
-        List<String> differences = new ArrayList<>();
-        for (long seed = FIRST_SEED; seed < FIRST_SEED + WORLDS; seed++) {
-            for (int[] height : HEIGHTS) {
-                differences.addAll(compare(tested, seed, height[0], height[1], true, missing));
-                differences.addAll(compare(tested, seed, height[0], height[1], false, missing));
-            }
-        }
-
-        return differences;
+        return cases().flatMap(world -> compare(tested, world, missing).stream()).toList();
     }
 
-    private static <E extends LevelLightEngine> List<String> compare(Engine<E> tested, long seed, int minY, int height, boolean sky, boolean missing) {
-        String world = "seed %d, height %d to %d, sky %s".formatted(seed, minY, minY + height, sky);
-        TestWorld reference = new TestWorld(seed, minY, height);
-        TestWorld candidate = new TestWorld(seed, minY, height);
-        LevelLightEngine referenceEngine = VANILLA.create(reference, sky);
-        E candidateEngine = tested.create(candidate, sky);
-        reference.light(referenceEngine, VANILLA);
-        candidate.light(candidateEngine, tested);
-        List<String> differences = new ArrayList<>(read("%s, generated".formatted(world), referenceEngine, candidateEngine));
+    static List<String> referenceDifferences() {
+        return cases().flatMap(world -> {
+            List<TestWorld.Edit> edits = world.edits();
+            return read("%s, light from zero twice".formatted(world), world.lightFromZero(edits), world.lightFromZero(edits)).stream();
+        }).toList();
+    }
 
-        RandomSource edits = RandomSource.create(~seed);
-        for (int edit = 0; edit < EDITS; edit++) {
-            BlockPos pos = reference.randomPos(edits);
-            BlockState state = TestWorld.PALETTE.get(edits.nextInt(TestWorld.PALETTE.size()));
-            BiConsumer<BlockPos, BlockState> write = missing && edit % MISSED_EVERY == 0 ? candidate::setUnseen : candidate::set;
-            reference.set(pos, state);
-            write.accept(pos, state);
-            if (edit % EDITS_PER_BATCH == 0) {
-                VANILLA.settle(referenceEngine);
-                tested.settle(candidateEngine);
+    private static Stream<Case> cases() {
+        return LongStream.range(FIRST_SEED, FIRST_SEED + WORLDS).boxed()
+            .flatMap(seed -> Arrays.stream(HEIGHTS).flatMap(height -> Stream.of(true, false).map(sky -> new Case(seed, height[0], height[1], sky))));
+    }
+
+    private static <E extends LevelLightEngine> List<String> compare(Engine<E> tested, Case world, boolean missing) {
+        TestWorld candidate = world.create();
+        E engine = tested.create(candidate, world.sky);
+        candidate.light(engine, tested);
+        List<String> differences = new ArrayList<>(read("%s, generated".formatted(world), world.lightFromZero(List.of()), engine));
+
+        LightLog log = new LightLog(engine, TestWorld.SIZE);
+        candidate.watch(log);
+        List<TestWorld.Edit> edits = world.edits();
+        for (int first = 0; first < edits.size(); first += EDITS_PER_BATCH) {
+            for (int edit = first; edit < Math.min(first + EDITS_PER_BATCH, edits.size()); edit++) {
+                Consumer<TestWorld.Edit> write = missing && edit % MISSED_EVERY == 0 ? candidate::setUnseen : candidate::set;
+                write.accept(edits.get(edit));
             }
+
+            tested.settle(engine);
+            differences.addAll(log.settle("%s, edits %d to %d".formatted(world, first, first + EDITS_PER_BATCH - 1)));
         }
 
-        VANILLA.settle(referenceEngine);
-        tested.settle(candidateEngine);
-        differences.addAll(read("%s, edited".formatted(world), referenceEngine, candidateEngine));
+        differences.addAll(read("%s, edited".formatted(world), world.lightFromZero(edits), engine));
         return differences;
     }
 
@@ -87,5 +86,30 @@ final class LightOracle {
                 reference.getLayerListener(layer).getLightValue(pos))));
         long count = differences.get().count();
         return count == 0 ? List.of() : List.of("%s: %d blocks differ, first %s".formatted(world, count, differences.get().limit(SHOWN).toList()));
+    }
+
+    private record Case(long seed, int minY, int height, boolean sky) {
+        private TestWorld create() {
+            return new TestWorld(this.seed, this.minY, this.height);
+        }
+
+        private List<TestWorld.Edit> edits() {
+            LevelHeightAccessor height = LevelHeightAccessor.create(this.minY, this.height);
+            RandomSource random = RandomSource.create(~this.seed);
+            return Stream.generate(() -> TestWorld.randomEdit(random, height)).limit(EDITS).toList();
+        }
+
+        private LevelLightEngine lightFromZero(List<TestWorld.Edit> edits) {
+            TestWorld world = create();
+            edits.forEach(world::set);
+            LevelLightEngine engine = VANILLA.create(world, this.sky);
+            world.light(engine, VANILLA);
+            return engine;
+        }
+
+        @Override
+        public String toString() {
+            return "seed %d, height %d to %d, sky %s".formatted(this.seed, this.minY, this.minY + this.height, this.sky);
+        }
     }
 }

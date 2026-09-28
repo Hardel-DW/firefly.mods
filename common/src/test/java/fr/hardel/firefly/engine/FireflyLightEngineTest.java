@@ -1,6 +1,7 @@
 package fr.hardel.firefly.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -29,19 +30,25 @@ class FireflyLightEngineTest {
     private static final LightEmission FAILING = (_, _, _) -> {
         throw FAILURE;
     };
+    private static final LightEmission ONE_LEVEL_LOW = (state, _, _) -> Math.max(0, state.getLightEmission() - 1);
 
     @Test
-    void fireflyLightsLikeVanillaAndKeepsSharedSections() {
-        assertEquals(List.of(), LightOracle.differences(new Parallel(), false));
+    void fireflyLightsLikeLightFromZeroAndKeepsSharedSections() {
+        assertEquals(List.of(), LightOracle.differences(new Parallel(LightEmission.VANILLA), false));
         assertEquals(List.of(0), distinctBytes(Nibbles.ZERO));
         assertEquals(List.of(-1), distinctBytes(Nibbles.FULL));
+    }
+
+    @Test
+    void aFireflyOneLevelLowIsCaught() {
+        assertNotEquals(List.of(), LightOracle.differences(new Parallel(ONE_LEVEL_LOW), false));
     }
 
     @Test
     void aChunkThatThrowsFailsItsFuturesInsteadOfHanging() {
         TestWorld world = new TestWorld(0, -16, 64);
         BlockPos glowstone = new BlockPos(CENTER * 16, 0, CENTER * 16);
-        world.set(glowstone, Blocks.GLOWSTONE.defaultBlockState());
+        world.set(new TestWorld.Edit(glowstone, Blocks.GLOWSTONE.defaultBlockState()));
         FireflyLightEngine engine = new FireflyLightEngine(world, null, true, null, null, FAILING, EXECUTOR);
 
         CompletableFuture<?> lit = engine.lightChunk(world.chunk(glowstone), false);
@@ -54,10 +61,10 @@ class FireflyLightEngineTest {
         return IntStream.range(0, data.length).map(index -> data[index]).distinct().boxed().toList();
     }
 
-    private static final class Parallel implements LightOracle.Engine<FireflyLightEngine> {
+    private record Parallel(LightEmission emission) implements LightOracle.Engine<FireflyLightEngine> {
         @Override
         public FireflyLightEngine create(LightChunkGetter world, boolean sky) {
-            return new FireflyLightEngine(world, null, sky, null, null, LightEmission.VANILLA, EXECUTOR);
+            return new FireflyLightEngine(world, null, sky, null, null, this.emission, EXECUTOR);
         }
 
         @Override

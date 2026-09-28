@@ -12,6 +12,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
@@ -56,6 +57,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
 
     private final LevelHeightAccessor height;
     private final ProtoChunk[] chunks = new ProtoChunk[SIZE * SIZE];
+    private @Nullable LightLog log;
 
     TestWorld(long seed, int minY, int height) {
         this.height = LevelHeightAccessor.create(minY, height);
@@ -93,12 +95,16 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
         tested.settle(engine);
     }
 
-    void set(BlockPos pos, BlockState state) {
-        chunk(pos).setBlockState(pos, state, Block.UPDATE_NONE);
+    void watch(LightLog log) {
+        this.log = log;
     }
 
-    void setUnseen(BlockPos pos, BlockState state) {
-        section(pos).setBlockState(pos.getX() & 15, pos.getY() & 15, pos.getZ() & 15, state);
+    void set(Edit edit) {
+        chunk(edit.pos).setBlockState(edit.pos, edit.state, Block.UPDATE_NONE);
+    }
+
+    void setUnseen(Edit edit) {
+        section(edit.pos).setBlockState(edit.pos.getX() & 15, edit.pos.getY() & 15, edit.pos.getZ() & 15, edit.state);
     }
 
     int minBlockY() {
@@ -112,6 +118,13 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
     @Override
     public @Nullable LightChunk getChunkForLighting(int x, int z) {
         return x < 0 || z < 0 || x >= SIZE || z >= SIZE ? null : this.chunks[x * SIZE + z];
+    }
+
+    @Override
+    public void onLightUpdate(LightLayer layer, SectionPos pos) {
+        if (this.log != null) {
+            this.log.notified(layer, pos);
+        }
     }
 
     @Override
@@ -164,7 +177,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
             for (int z = 0; z < SIZE * 16; z++) {
                 int ground = base + (int) (amplitude * (Math.sin(x / 9.0 + phaseX) + Math.cos(z / 11.0 + phaseZ)) / 2);
                 for (int y = getMinY(); y <= Math.max(ground, sea); y++) {
-                    setUnseen(new BlockPos(x, y, z), y <= ground ? Blocks.STONE.defaultBlockState() : Blocks.WATER.defaultBlockState());
+                    setUnseen(new Edit(new BlockPos(x, y, z), y <= ground ? Blocks.STONE.defaultBlockState() : Blocks.WATER.defaultBlockState()));
                 }
             }
         }
@@ -176,7 +189,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
             int radius = 2 + random.nextInt(4);
             for (BlockPos pos : BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius))) {
                 if (pos.distSqr(center) <= radius * radius && inside(pos)) {
-                    setUnseen(pos, Blocks.AIR.defaultBlockState());
+                    setUnseen(new Edit(pos, Blocks.AIR.defaultBlockState()));
                 }
             }
         }
@@ -188,23 +201,27 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
             int z = random.nextInt(SIZE * 16 - 12);
             int y = getMaxY() - 1 - random.nextInt(Math.max(1, getHeight() / 4));
             for (BlockPos pos : BlockPos.betweenClosed(x, y, z, x + 3 + random.nextInt(9), y, z + 3 + random.nextInt(9))) {
-                setUnseen(pos, Blocks.STONE.defaultBlockState());
+                setUnseen(new Edit(pos, Blocks.STONE.defaultBlockState()));
             }
         }
     }
 
     private void scatter(RandomSource random, int count) {
         for (int block = 0; block < count; block++) {
-            setUnseen(randomPos(random), PALETTE.get(random.nextInt(PALETTE.size())));
+            setUnseen(randomEdit(random, this.height));
         }
     }
 
-    BlockPos randomPos(RandomSource random) {
-        return new BlockPos(random.nextInt(SIZE * 16), getMinY() + random.nextInt(getHeight()), random.nextInt(SIZE * 16));
+    static Edit randomEdit(RandomSource random, LevelHeightAccessor height) {
+        BlockPos pos = new BlockPos(random.nextInt(SIZE * 16), height.getMinY() + random.nextInt(height.getHeight()), random.nextInt(SIZE * 16));
+        return new Edit(pos, PALETTE.get(random.nextInt(PALETTE.size())));
     }
 
     private boolean inside(BlockPos pos) {
         return pos.getX() >= 0 && pos.getZ() >= 0 && pos.getX() < SIZE * 16 && pos.getZ() < SIZE * 16 && !this.height.isOutsideBuildHeight(pos);
+    }
+
+    record Edit(BlockPos pos, BlockState state) {
     }
 
     private static PalettedContainerFactory containers() {
