@@ -1,5 +1,6 @@
 package fr.hardel.firefly.engine;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
@@ -11,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
@@ -46,6 +48,26 @@ class QueuedLightTest {
         assertNotEquals(0, watcher.blockUpdates);
         assertEquals(List.of(), watcher.holes);
         assertEquals(SAVED_SKY, engine.getLayerListener(LightLayer.SKY).getDataLayerData(section).get(0, 0, 0));
+    }
+
+    @Test
+    void aSavedSectionAlreadyReadNeverChangesUnderItsReader() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        BlockPos glowstone = new BlockPos(CENTER * 16 + 8, world.minBlockY() + 8, CENTER * 16 + 8);
+        world.set(new TestWorld.Edit(glowstone, Blocks.GLOWSTONE.defaultBlockState()));
+        ProtoChunk chunk = world.chunk(glowstone);
+        SectionPos section = SectionPos.of(glowstone);
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, null, null, LightEmission.VANILLA, Parallel.EXECUTOR);
+
+        engine.retainData(chunk.getPos(), true);
+        engine.queueSectionData(LightLayer.BLOCK, section, new DataLayer(SAVED_BLOCK));
+        DataLayer read = engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(section);
+        byte[] seen = read.getData().clone();
+        engine.checkBlock(glowstone);
+        engine.initializeLight(chunk, true).join();
+        engine.lightChunk(chunk, true).join();
+
+        assertArrayEquals(seen, read.getData());
     }
 
     private static final class SkyWatcher implements LightChunkGetter {

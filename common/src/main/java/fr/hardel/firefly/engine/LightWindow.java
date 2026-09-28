@@ -471,7 +471,7 @@ final class LightWindow {
             byte[] queuedData = LightWindow.this.queued.get(this.type, chunkX(chunkIndex), chunkZ(chunkIndex), section);
             byte[] data = queuedData != null ? queuedData : freshData(chunkIndex, section);
             this.current[slot] = data;
-            this.owned[slot] = !Nibbles.shared(data);
+            this.owned[slot] = queuedData == null && !Nibbles.shared(data);
             markChanged(slot);
             notifyAround(chunkIndex, section);
         }
