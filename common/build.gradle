@@ -18,7 +18,7 @@ test {
 	systemProperty 'firefly.oracle.firstSeed', providers.gradleProperty('oracleFirstSeed').getOrElse('0')
 	systemProperty 'firefly.oracle.worlds', providers.gradleProperty('oracleWorlds').getOrElse('4')
 	useJUnitPlatform {
-		excludeTags 'mod'
+		excludeTags 'mod', 'bench'
 	}
 }
 

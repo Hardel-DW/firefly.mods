@@ -53,6 +53,18 @@ test {
 	}
 }
 
+tasks.register('lightBench', Test) {
+	description = 'Times the light of the same test worlds on one thread, the CPU per chunk of each kind of task.'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	jvmArgs '-XX:+UseZGC', '-Xmx4G'
+	outputs.upToDateWhen { false }
+	testLogging.showStandardStreams = true
+	useJUnitPlatform {
+		includeTags 'bench'
+	}
+}
+
 processResources {
 	from(project(':common').sourceSets.main.resources)
 	inputs.property 'version', project.version
