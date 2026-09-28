@@ -161,6 +161,9 @@ abstract class Propagator {
     }
 
     private static boolean occludes(BlockState fromState, BlockState toState, Direction direction) {
+        if (emptyShape(fromState) && emptyShape(toState))
+            return false;
+
         VoxelShape fromShape = LightEngine.getOcclusionShape(fromState, direction);
         VoxelShape toShape = LightEngine.getOcclusionShape(toState, opposite(direction));
         return Shapes.faceShapeOccludes(fromShape, toShape);
