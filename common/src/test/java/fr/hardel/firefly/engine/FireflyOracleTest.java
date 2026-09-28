@@ -14,7 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @Tag("mod")
 @ExtendWith(MinecraftBootstrap.class)
 class FireflyOracleTest {
-    private static final LightOracle.Engine FIREFLY = (world, sky) -> new FireflyLightEngine(world, null, sky, null, null, (state, _, _) -> state.getLightEmission());
+    private static final LightOracle.Engine FIREFLY = (world, sky) -> new FireflyLightEngine(world, null, sky, null, null, LightEmission.VANILLA, _ -> {
+    });
 
     @Test
     void fireflyLightsLikeVanillaAndKeepsSharedSections() {

@@ -1,9 +1,9 @@
 package fr.hardel.firefly.server;
 
 import fr.hardel.firefly.storage.ChunkLight;
-import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.LightSections;
 import fr.hardel.firefly.storage.Nibbles;
+import fr.hardel.firefly.storage.QueuedSections;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.ChunkPos;
@@ -14,29 +14,35 @@ import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LayerLightEventListener;
 import org.jspecify.annotations.Nullable;
 
-final class LightReader implements LayerLightEventListener {
+public final class LightReader implements LayerLightEventListener {
     private static final int SKY = 15;
 
     private final FireflyLightEngine engine;
     private final LightChunkGetter source;
+    private final QueuedSections queued;
     private final LightLayer layer;
     private final int minSection;
 
-    LightReader(FireflyLightEngine engine, LightChunkGetter source, LightLayer layer, int minSection) {
+    LightReader(FireflyLightEngine engine, LightChunkGetter source, QueuedSections queued, LightLayer layer, int minSection) {
         this.engine = engine;
         this.source = source;
+        this.queued = queued;
         this.layer = layer;
         this.minSection = minSection;
     }
 
     @Override
     public @Nullable DataLayer getDataLayerData(SectionPos pos) {
-        LightSections sections = sections(pos.x(), pos.z());
+        return getDataLayerData(this.source.getChunkForLighting(pos.x(), pos.z()), pos);
+    }
+
+    public @Nullable DataLayer getDataLayerData(@Nullable LightChunk chunk, SectionPos pos) {
         int index = pos.y() - this.minSection;
-        if (sections == null || index < 0 || index >= sections.count())
+        if (index < 0 || index >= this.engine.getLightSectionCount())
             return null;
 
-        byte[] data = sections.get(index);
+        byte[] queuedData = this.queued.get(this.layer, pos.x(), pos.z(), index);
+        byte[] data = queuedData != null || chunk == null ? queuedData : sections(chunk).get(index);
         if (data == null)
             return null;
 
@@ -48,7 +54,8 @@ final class LightReader implements LayerLightEventListener {
 
     @Override
     public int getLightValue(BlockPos pos) {
-        LightSections sections = sections(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
+        LightChunk chunk = this.source.getChunkForLighting(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
+        LightSections sections = chunk == null ? null : sections(chunk);
         int index = SectionPos.blockToSectionCoord(pos.getY()) - this.minSection;
         if (this.layer == LightLayer.BLOCK)
             return blockLight(sections, index, pos);
@@ -86,6 +93,10 @@ final class LightReader implements LayerLightEventListener {
         this.engine.propagateLightSources(pos);
     }
 
+    private LightSections sections(LightChunk chunk) {
+        return ((ChunkLight) chunk).firefly$light().sections(this.layer);
+    }
+
     private static int blockLight(@Nullable LightSections sections, int index, BlockPos pos) {
         if (sections == null || index < 0 || index >= sections.count())
             return 0;
@@ -106,11 +117,5 @@ final class LightReader implements LayerLightEventListener {
         }
 
         return SKY;
-    }
-
-    private @Nullable LightSections sections(int chunkX, int chunkZ) {
-        LightChunk chunk = this.source.getChunkForLighting(chunkX, chunkZ);
-        LightColumn column = chunk == null ? null : ((ChunkLight) chunk).firefly$lightIfPresent();
-        return column == null ? null : column.sections(this.layer);
     }
 }

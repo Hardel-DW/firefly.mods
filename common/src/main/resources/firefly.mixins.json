@@ -3,7 +3,11 @@
 	"package": "fr.hardel.firefly.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
-		"ChunkAccessMixin"
+		"ChunkAccessMixin",
+		"ChunkMapMixin",
+		"ImposterProtoChunkMixin",
+		"LevelChunkMixin",
+		"SerializableChunkDataMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

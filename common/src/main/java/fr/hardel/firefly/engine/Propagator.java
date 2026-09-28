@@ -54,7 +54,7 @@ abstract class Propagator {
             }
         }
 
-        this.layer.finishRemovals();
+        this.layer.finish();
     }
 
     abstract void setLightEnabled(boolean enabled);
@@ -93,11 +93,8 @@ abstract class Propagator {
 
     private @Nullable BlockState increaseTowards(int from, long entry, int fromLevel, Direction direction, @Nullable BlockState fromState, int emptySectionsBelow) {
         int to = LightWindow.neighbor(from, direction);
-        if (!this.layer.stored(to))
-            return fromState;
-
-        int oldLevel = this.layer.get(to);
-        if (fromLevel - 1 <= oldLevel)
+        int oldLevel = this.layer.level(to);
+        if (oldLevel < 0 || fromLevel - 1 <= oldLevel)
             return fromState;
 
         BlockState toState = this.window.state(to);
@@ -131,11 +128,8 @@ abstract class Propagator {
 
     private void decreaseTowards(int from, int fromLevel, Direction direction, int emptySectionsBelow) {
         int to = LightWindow.neighbor(from, direction);
-        if (!this.layer.stored(to))
-            return;
-
-        int toLevel = this.layer.get(to);
-        if (toLevel == 0)
+        int toLevel = this.layer.level(to);
+        if (toLevel <= 0)
             return;
 
         if (toLevel > fromLevel - 1) {

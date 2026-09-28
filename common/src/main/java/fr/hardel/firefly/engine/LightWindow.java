@@ -3,7 +3,9 @@ package fr.hardel.firefly.engine;
 import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
+import fr.hardel.firefly.storage.QueuedSections;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
@@ -12,6 +14,8 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
@@ -25,11 +29,13 @@ final class LightWindow {
     private static final int Y_SHIFT = 14;
     private static final int AXIS_MASK = (1 << Z_SHIFT) - 1;
     private static final BlockState ABSENT = Blocks.BEDROCK.defaultBlockState();
+    private static final BlockState OUTSIDE = Blocks.AIR.defaultBlockState();
 
     final Layer block;
     final @Nullable Layer sky;
     private final LightChunkGetter source;
     private final LightEmission emission;
+    private final QueuedSections queued;
     private final ChunkSkyLightSources emptySources;
     private final int chunkX;
     private final int chunkZ;
@@ -39,11 +45,14 @@ final class LightWindow {
     private final int originZ;
     private final int minBlockY;
     private final @Nullable LightChunk[] chunks = new LightChunk[CHUNKS * CHUNKS];
+    private final LevelChunkSection[][] blocks = new LevelChunkSection[CHUNKS * CHUNKS][];
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
-    LightWindow(LightChunkGetter source, LightEmission emission, ChunkSkyLightSources emptySources, boolean hasSky, int chunkX, int chunkZ, int minSection, int sections) {
+    LightWindow(LightChunkGetter source, LightEmission emission, QueuedSections queued, ChunkSkyLightSources emptySources, boolean hasSky, int chunkX, int chunkZ, int minSection,
+        int sections) {
         this.source = source;
         this.emission = emission;
+        this.queued = queued;
         this.emptySources = emptySources;
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
@@ -54,7 +63,9 @@ final class LightWindow {
         this.minBlockY = SectionPos.sectionToBlockCoord(minSection);
         for (int dx = 0; dx < CHUNKS; dx++) {
             for (int dz = 0; dz < CHUNKS; dz++) {
-                this.chunks[dx * CHUNKS + dz] = source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk chunk = source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                this.chunks[dx * CHUNKS + dz] = chunk;
+                this.blocks[dx * CHUNKS + dz] = chunk == null ? null : ((ChunkAccess) chunk).getSections();
             }
         }
 
@@ -146,12 +157,20 @@ final class LightWindow {
     }
 
     BlockState state(int cell) {
-        LightChunk chunk = this.chunks[chunkIndex(cell)];
-        return chunk == null ? ABSENT : chunk.getBlockState(this.cursor.set(blockX(cell), blockY(cell), blockZ(cell)));
+        LevelChunkSection[] sections = this.blocks[chunkIndex(cell)];
+        if (sections == null)
+            return ABSENT;
+
+        int section = sectionIndex(cell) - 1;
+        return section < 0 || section >= sections.length ? OUTSIDE : sections[section].getBlockState(localX(cell), localY(cell), localZ(cell));
     }
 
     int emission(int cell, BlockState state) {
         return this.emission.emission(state, this.source.getLevel(), this.cursor.set(blockX(cell), blockY(cell), blockZ(cell)));
+    }
+
+    boolean hasCenter() {
+        return this.chunks[CENTER] != null;
     }
 
     LightChunk center() {
@@ -197,6 +216,21 @@ final class LightWindow {
         }
     }
 
+    void unload() {
+        LightColumn center = columnIfPresent(CENTER);
+        if (center != null) {
+            clearCenter(center);
+        }
+
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                for (int section = 0; section < this.sections; section++) {
+                    updateStored(CENTER + dx * CHUNKS + dz, section);
+                }
+            }
+        }
+    }
+
     void publish() {
         this.block.publish();
         if (this.sky != null) {
@@ -232,37 +266,66 @@ final class LightWindow {
         return column.nonEmpty(section) || section > 0 && column.nonEmpty(section - 1) || section + 1 < this.sections && column.nonEmpty(section + 1);
     }
 
+    private void clearCenter(LightColumn center) {
+        for (int section = 0; section < this.sections; section++) {
+            center.setNonEmpty(section, false);
+        }
+
+        center.sections(LightLayer.BLOCK).setEnabled(false);
+        center.sections(LightLayer.SKY).setEnabled(false);
+    }
+
     private LightColumn column(int chunkIndex) {
         return ((ChunkLight) this.chunks[chunkIndex]).firefly$light();
     }
 
     private @Nullable LightColumn columnIfPresent(int chunkIndex) {
         LightChunk chunk = this.chunks[chunkIndex];
-        return chunk == null ? null : ((ChunkLight) chunk).firefly$lightIfPresent();
+        return chunk == null ? null : ((ChunkLight) chunk).firefly$light();
+    }
+
+    private int chunkX(int chunkIndex) {
+        return this.chunkX - RADIUS + chunkIndex / CHUNKS;
+    }
+
+    private int chunkZ(int chunkIndex) {
+        return this.chunkZ - RADIUS + chunkIndex % CHUNKS;
     }
 
     private long sectionNode(int chunkIndex, int section) {
-        return SectionPos.asLong(this.chunkX - RADIUS + chunkIndex / CHUNKS, this.minSection + section, this.chunkZ - RADIUS + chunkIndex % CHUNKS);
+        return SectionPos.asLong(chunkX(chunkIndex), this.minSection + section, chunkZ(chunkIndex));
     }
 
     final class Layer {
         private final LightLayer type;
         private final byte[][] current;
-        private final boolean[] loaded;
         private final boolean[] owned;
         private final boolean[] removing;
         private final boolean[] changed;
+        private final boolean[] affectedInside;
         private final IntArrayList changes = new IntArrayList();
         private final LongOpenHashSet affected = new LongOpenHashSet();
+        private final LongConsumer affect = this.affected::add;
 
         private Layer(LightLayer type) {
             int slots = CHUNKS * CHUNKS * LightWindow.this.sections;
             this.type = type;
             this.current = new byte[slots][];
-            this.loaded = new boolean[slots];
             this.owned = new boolean[slots];
             this.removing = new boolean[slots];
             this.changed = new boolean[slots];
+            this.affectedInside = new boolean[slots];
+            for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
+                LightColumn column = columnIfPresent(chunkIndex);
+                for (int section = 0; column != null && section < LightWindow.this.sections; section++) {
+                    this.current[chunkIndex * LightWindow.this.sections + section] = column.sections(type).get(section);
+                }
+            }
+        }
+
+        int level(int cell) {
+            byte[] data = this.current[slot(cell)];
+            return data == null ? -1 : Nibbles.get(data, Nibbles.index(localX(cell), localY(cell), localZ(cell)));
         }
 
         boolean stored(int cell) {
@@ -279,7 +342,19 @@ final class LightWindow {
 
         void set(int cell, int level) {
             write(cell, level);
-            SectionPos.aroundAndAtBlockPos(blockX(cell), blockY(cell), blockZ(cell), this.affected::add);
+            int x = localX(cell);
+            int y = localY(cell);
+            int z = localZ(cell);
+            if (x == 0 || x == 15 || y == 0 || y == 15 || z == 0 || z == 15) {
+                SectionPos.aroundAndAtBlockPos(blockX(cell), blockY(cell), blockZ(cell), this.affect);
+                return;
+            }
+
+            int slot = slot(cell);
+            if (!this.affectedInside[slot]) {
+                this.affectedInside[slot] = true;
+                this.affected.add(sectionNode(slot / LightWindow.this.sections, slot % LightWindow.this.sections));
+            }
         }
 
         void write(int cell, int level) {
@@ -325,12 +400,46 @@ final class LightWindow {
             return -1;
         }
 
-        void finishRemovals() {
+        void finish() {
             for (int slot = 0; slot < this.removing.length; slot++) {
                 if (this.removing[slot]) {
-                    this.removing[slot] = false;
-                    this.current[slot] = null;
-                    this.owned[slot] = false;
+                    remove(slot);
+                }
+            }
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    applyQueued(CENTER + dx * CHUNKS + dz);
+                }
+            }
+        }
+
+        private void remove(int slot) {
+            int chunkIndex = slot / LightWindow.this.sections;
+            int section = slot % LightWindow.this.sections;
+            QueuedSections.Column column = LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
+            byte[] queuedData = column == null ? null : column.take(this.type, section);
+            if (column != null && column.retained()) {
+                column.put(this.type, section, queuedData != null ? queuedData : this.current[slot]);
+            }
+
+            this.removing[slot] = false;
+            this.current[slot] = null;
+            this.owned[slot] = false;
+            markChanged(slot);
+        }
+
+        private void applyQueued(int chunkIndex) {
+            QueuedSections.Column column = LightWindow.this.chunks[chunkIndex] == null ? null : LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
+            if (column == null)
+                return;
+
+            for (int section = 0; section < LightWindow.this.sections; section++) {
+                int slot = chunkIndex * LightWindow.this.sections + section;
+                byte[] queuedData = data(slot) == null ? null : column.take(this.type, section);
+                if (queuedData != null && queuedData != this.current[slot]) {
+                    this.current[slot] = queuedData;
+                    this.owned[slot] = !Nibbles.shared(queuedData);
                     markChanged(slot);
                 }
             }
@@ -352,14 +461,18 @@ final class LightWindow {
                 return;
             }
 
-            byte[] data = this.type == LightLayer.BLOCK ? Nibbles.ZERO : skyData(chunkIndex, section);
+            byte[] queuedData = LightWindow.this.queued.get(this.type, chunkX(chunkIndex), chunkZ(chunkIndex), section);
+            byte[] data = queuedData != null ? queuedData : freshData(chunkIndex, section);
             this.current[slot] = data;
             this.owned[slot] = !Nibbles.shared(data);
             markChanged(slot);
             affectAround(chunkIndex, section);
         }
 
-        private byte[] skyData(int chunkIndex, int section) {
+        private byte[] freshData(int chunkIndex, int section) {
+            if (this.type == LightLayer.BLOCK)
+                return Nibbles.ZERO;
+
             int top = topSection(chunkIndex);
             if (top > section) {
                 int above = section + 1;
@@ -385,12 +498,6 @@ final class LightWindow {
         }
 
         private byte @Nullable [] data(int slot) {
-            if (!this.loaded[slot]) {
-                LightColumn column = columnIfPresent(slot / LightWindow.this.sections);
-                this.current[slot] = column == null ? null : column.sections(this.type).get(slot % LightWindow.this.sections);
-                this.loaded[slot] = true;
-            }
-
             return this.current[slot];
         }
 
