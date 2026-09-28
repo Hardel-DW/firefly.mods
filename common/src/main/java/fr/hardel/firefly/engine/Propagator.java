@@ -2,6 +2,7 @@ package fr.hardel.firefly.engine;
 
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import java.util.Arrays;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -12,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 
 abstract class Propagator {
     protected static final Direction[] DIRECTIONS = Direction.values();
+    private static final Direction[] OPPOSITES = Arrays.stream(DIRECTIONS).map(Direction::getOpposite).toArray(Direction[]::new);
 
     protected final LightWindow window;
     protected final LightWindow.Layer layer;
@@ -108,7 +110,7 @@ abstract class Propagator {
 
         this.layer.set(to, toLevel);
         if (toLevel > 1) {
-            increase(to, toLevel, LightQueue.allBut(direction.getOpposite()), emptyShape(toState), false);
+            increase(to, toLevel, LightQueue.allBut(opposite(direction)), emptyShape(toState), false);
         }
 
         spreadBelow(to, direction, toLevel, true, emptySectionsBelow);
@@ -133,14 +135,14 @@ abstract class Propagator {
             return;
 
         if (toLevel > fromLevel - 1) {
-            increase(to, toLevel, LightQueue.only(direction.getOpposite()), false, false);
+            increase(to, toLevel, LightQueue.only(opposite(direction)), false, false);
             return;
         }
 
         int toEmission = decreasedEmission(to);
         this.layer.set(to, 0);
         if (toEmission < toLevel) {
-            decrease(to, toLevel, LightQueue.allBut(direction.getOpposite()));
+            decrease(to, toLevel, LightQueue.allBut(opposite(direction)));
         }
 
         if (toEmission > 0) {
@@ -150,13 +152,17 @@ abstract class Propagator {
         spreadBelow(to, direction, toLevel, false, emptySectionsBelow);
     }
 
+    protected static Direction opposite(Direction direction) {
+        return OPPOSITES[direction.ordinal()];
+    }
+
     private static int opacity(BlockState state) {
         return Math.max(1, state.getLightDampening());
     }
 
     private static boolean occludes(BlockState fromState, BlockState toState, Direction direction) {
         VoxelShape fromShape = LightEngine.getOcclusionShape(fromState, direction);
-        VoxelShape toShape = LightEngine.getOcclusionShape(toState, direction.getOpposite());
+        VoxelShape toShape = LightEngine.getOcclusionShape(toState, opposite(direction));
         return Shapes.faceShapeOccludes(fromShape, toShape);
     }
 }

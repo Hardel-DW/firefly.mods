@@ -8,6 +8,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import java.util.Arrays;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -30,6 +31,9 @@ final class LightWindow {
     private static final int AXIS_MASK = (1 << Z_SHIFT) - 1;
     private static final BlockState ABSENT = Blocks.BEDROCK.defaultBlockState();
     private static final BlockState OUTSIDE = Blocks.AIR.defaultBlockState();
+    private static final int[] OFFSETS = Arrays.stream(Direction.values())
+        .mapToInt(direction -> direction.getStepX() + (direction.getStepZ() << Z_SHIFT) + (direction.getStepY() << Y_SHIFT))
+        .toArray();
 
     final Layer block;
     final @Nullable Layer sky;
@@ -134,22 +138,14 @@ final class LightWindow {
     }
 
     boolean hasNeighbor(int cell, Direction direction) {
-        return switch (direction) {
-            case DOWN -> cell >>> Y_SHIFT != 0;
-            case UP -> (cell >>> Y_SHIFT) + 1 < this.sections << 4;
-            default -> true;
-        };
+        if (direction == Direction.DOWN)
+            return cell >>> Y_SHIFT != 0;
+
+        return direction != Direction.UP || (cell >>> Y_SHIFT) + 1 < this.sections << 4;
     }
 
     static int neighbor(int cell, Direction direction) {
-        return switch (direction) {
-            case DOWN -> cell - (1 << Y_SHIFT);
-            case UP -> cell + (1 << Y_SHIFT);
-            case NORTH -> cell - (1 << Z_SHIFT);
-            case SOUTH -> cell + (1 << Z_SHIFT);
-            case WEST -> cell - 1;
-            case EAST -> cell + 1;
-        };
+        return cell + OFFSETS[direction.ordinal()];
     }
 
     static int withY(int cell, int sectionIndex, int localY) {

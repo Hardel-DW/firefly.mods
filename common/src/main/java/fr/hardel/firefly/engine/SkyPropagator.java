@@ -112,11 +112,11 @@ final class SkyPropagator extends Propagator {
             int target = LightWindow.withY(cell, section, localY);
             this.layer.set(target, increase ? level : 0);
             if (increase && level > 1) {
-                increase(target, level, LightQueue.allBut(direction.getOpposite()), true, false);
+                increase(target, level, LightQueue.allBut(opposite(direction)), true, false);
             }
 
             if (!increase) {
-                decrease(target, level, LightQueue.allBut(direction.getOpposite()));
+                decrease(target, level, LightQueue.allBut(opposite(direction)));
             }
         }
     }
