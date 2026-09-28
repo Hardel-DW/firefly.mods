@@ -31,7 +31,7 @@ final class SkyPropagator extends Propagator {
     @Override
     void propagateLightSources() {
         this.layer.setEnabled(LightWindow.CENTER, true);
-        Sources sources = new Sources(this.window);
+        Sources sources = Sources.of(this.window);
         boolean sourcesBelow = true;
         for (int section = this.layer.topSection(LightWindow.CENTER); section >= 0 && sourcesBelow; section--) {
             if (this.layer.stored(LightWindow.CENTER, section)) {
@@ -183,12 +183,17 @@ final class SkyPropagator extends Propagator {
     private boolean lightSection(int section, Sources sources) {
         int sectionMinY = this.window.sectionBottomY(section);
         int sectionMaxY = sectionMinY + 15;
+        boolean filled = sources.highestSourceY <= sectionMinY;
+        if (filled) {
+            this.layer.fill(LightWindow.CENTER, section, Nibbles.FULL);
+        }
+
         boolean sourcesBelow = false;
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 int lowestSourceY = sources.center.getLowestSourceY(x, z);
                 if (lowestSourceY <= sectionMaxY) {
-                    lightColumn(x, z, sectionMinY, sectionMaxY, lowestSourceY, sources);
+                    lightColumn(x, z, sectionMinY, sectionMaxY, lowestSourceY, sources, filled);
                 }
 
                 sourcesBelow |= lowestSourceY < sectionMinY;
@@ -198,15 +203,19 @@ final class SkyPropagator extends Propagator {
         return sourcesBelow;
     }
 
-    private void lightColumn(int x, int z, int sectionMinY, int sectionMaxY, int lowestSourceY, Sources sources) {
+    private void lightColumn(int x, int z, int sectionMinY, int sectionMaxY, int lowestSourceY, Sources sources, boolean filled) {
         int north = z == 0 ? sources.north.getLowestSourceY(x, 15) : sources.center.getLowestSourceY(x, z - 1);
         int south = z == 15 ? sources.south.getLowestSourceY(x, 0) : sources.center.getLowestSourceY(x, z + 1);
         int west = x == 0 ? sources.west.getLowestSourceY(15, z) : sources.center.getLowestSourceY(x - 1, z);
         int east = x == 15 ? sources.east.getLowestSourceY(0, z) : sources.center.getLowestSourceY(x + 1, z);
         int neighborLowestSourceY = Math.max(Math.max(north, south), Math.max(west, east));
-        for (int y = sectionMaxY; y >= Math.max(sectionMinY, lowestSourceY); y--) {
+        int top = filled ? Math.min(sectionMaxY, Math.max(neighborLowestSourceY - 1, lowestSourceY)) : sectionMaxY;
+        for (int y = top; y >= Math.max(sectionMinY, lowestSourceY); y--) {
             int cell = this.window.centerCell(x, y, z);
-            this.layer.write(cell, SOURCE);
+            if (!filled) {
+                this.layer.write(cell, SOURCE);
+            }
+
             if (y == lowestSourceY || y < neighborLowestSourceY) {
                 increase(cell, SOURCE, directions(y == lowestSourceY, y < north, y < south, y < west, y < east), false, false);
             }
@@ -231,10 +240,13 @@ final class SkyPropagator extends Propagator {
         };
     }
 
-    private record Sources(ChunkSkyLightSources center, ChunkSkyLightSources north, ChunkSkyLightSources south, ChunkSkyLightSources west, ChunkSkyLightSources east) {
-        private Sources(LightWindow window) {
-            this(window.sourcesOrEmpty(LightWindow.CENTER), window.sourcesOrEmpty(LightWindow.CENTER - 1), window.sourcesOrEmpty(LightWindow.CENTER + 1),
-                window.sourcesOrEmpty(LightWindow.CENTER - LightWindow.CHUNKS), window.sourcesOrEmpty(LightWindow.CENTER + LightWindow.CHUNKS));
+    private record Sources(ChunkSkyLightSources center, ChunkSkyLightSources north, ChunkSkyLightSources south, ChunkSkyLightSources west, ChunkSkyLightSources east,
+        int highestSourceY) {
+        private static Sources of(LightWindow window) {
+            ChunkSkyLightSources center = window.sourcesOrEmpty(LightWindow.CENTER);
+            return new Sources(center, window.sourcesOrEmpty(LightWindow.CENTER - 1), window.sourcesOrEmpty(LightWindow.CENTER + 1),
+                window.sourcesOrEmpty(LightWindow.CENTER - LightWindow.CHUNKS), window.sourcesOrEmpty(LightWindow.CENTER + LightWindow.CHUNKS),
+                center.getHighestLowestSourceY());
         }
     }
 }
