@@ -32,6 +32,10 @@ final class LightOracle {
     interface Engine<E extends LevelLightEngine> {
         E create(LightChunkGetter world, boolean sky);
 
+        default void light(TestWorld world, E engine) {
+            world.light(engine, this);
+        }
+
         default void settle(E engine) {
             engine.runLightUpdates();
         }
@@ -59,7 +63,7 @@ final class LightOracle {
     private static <E extends LevelLightEngine> List<String> compare(Engine<E> tested, Case world, boolean missing) {
         TestWorld candidate = world.create();
         E engine = tested.create(candidate, world.sky);
-        candidate.light(engine, tested);
+        tested.light(candidate, engine);
         List<String> differences = new ArrayList<>(read("%s, generated".formatted(world), world.lightFromZero(List.of()), engine));
 
         LightLog log = new LightLog(engine, TestWorld.SIZE);

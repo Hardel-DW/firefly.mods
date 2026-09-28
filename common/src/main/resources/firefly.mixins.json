@@ -5,6 +5,7 @@
 	"mixins": [
 		"ChunkAccessMixin",
 		"ChunkMapMixin",
+		"ChunkStatusTasksMixin",
 		"ImposterProtoChunkMixin",
 		"LevelChunkMixin",
 		"SerializableChunkDataMixin"

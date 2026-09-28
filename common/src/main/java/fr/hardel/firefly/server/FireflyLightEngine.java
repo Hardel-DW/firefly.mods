@@ -9,10 +9,8 @@ import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.QueuedSections;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -26,7 +24,6 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.DataLayer;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LayerLightEventListener;
@@ -42,8 +39,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final LightReader block;
     private final @Nullable LightReader sky;
     private final LightExecutor executor;
-    private final Long2ObjectOpenHashMap<ChunkWork> pending = new Long2ObjectOpenHashMap<>();
-    private final List<ChunkWork> unsubmitted = new ArrayList<>();
+    private final Long2ObjectLinkedOpenHashMap<ChunkWork> unsubmitted = new Long2ObjectLinkedOpenHashMap<>();
     private final Object submitting = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
 
@@ -94,23 +90,14 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public CompletableFuture<ChunkAccess> initializeLight(ChunkAccess chunk, boolean lighted) {
-        ChunkPos pos = chunk.getPos();
-        CompletableFuture<ChunkAccess> lit = new CompletableFuture<>();
-        LevelChunkSection[] sections = chunk.getSections();
-        request(pos.x(), pos.z(), work -> {
-            for (int index = 0; index < sections.length; index++) {
-                if (!sections[index].hasOnlyAir()) {
-                    work.sectionStatus(index + 1, false);
-                }
-            }
+        CompletableFuture<ChunkAccess> initialized = new CompletableFuture<>();
+        initialize(chunk, lighted, work -> work.completes(initialized, chunk));
+        return initialized;
+    }
 
-            work.lightEnabledAfterUpdate(lighted);
-            work.onComplete(lit, () -> {
-                this.queued.retain(pos.x(), pos.z(), false);
-                lit.complete(chunk);
-            });
-        });
-        return lit;
+    public CompletableFuture<ChunkAccess> initializeLightAhead(ChunkAccess chunk, boolean lighted) {
+        initialize(chunk, lighted, _ -> {});
+        return CompletableFuture.completedFuture(chunk);
     }
 
     @Override
@@ -123,26 +110,18 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
                 work.propagateLightSources();
             }
 
-            work.onComplete(lit, () -> {
-                chunk.setLightCorrect(true);
-                lit.complete(chunk);
-            });
+            work.onComplete(() -> chunk.setLightCorrect(true));
+            work.completes(lit, chunk);
         });
         return lit;
     }
 
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
-        List<CompletableFuture<Void>> writers = new ArrayList<>();
-        request(chunkX, chunkZ, center -> ChunkPos.rangeClosed(new ChunkPos(chunkX, chunkZ), LevelLight.WRITE_RADIUS)
-            .map(pos -> pos.x() == chunkX && pos.z() == chunkZ ? center : this.pending.get(pos.pack()))
-            .filter(Objects::nonNull)
-            .forEach(work -> {
-                CompletableFuture<Void> done = new CompletableFuture<>();
-                work.onComplete(done, () -> done.complete(null));
-                writers.add(done);
-            }));
-        return CompletableFuture.allOf(writers.toArray(CompletableFuture[]::new));
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        submitPending();
+        request(chunkX, chunkZ, work -> work.completes(done, null));
+        return done;
     }
 
     @Override
@@ -186,6 +165,15 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         return column.sections(LightLayer.BLOCK).enabled() && (this.sky == null || column.sections(LightLayer.SKY).enabled());
     }
 
+    private void initialize(ChunkAccess chunk, boolean lighted, Consumer<ChunkWork> awaiting) {
+        ChunkPos pos = chunk.getPos();
+        request(pos.x(), pos.z(), work -> {
+            work.initialize(lighted);
+            work.onComplete(() -> this.queued.retain(pos.x(), pos.z(), false));
+            awaiting.accept(work);
+        });
+    }
+
     private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
         update(chunkX, chunkZ, change);
         submitPending();
@@ -193,8 +181,8 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     private void update(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
         long chunk = ChunkPos.pack(chunkX, chunkZ);
-        synchronized (this.pending) {
-            ChunkWork work = this.pending.get(chunk);
+        synchronized (this.unsubmitted) {
+            ChunkWork work = this.unsubmitted.get(chunk);
             if (work != null) {
                 change.accept(work);
                 return;
@@ -202,31 +190,26 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
             ChunkWork created = new ChunkWork(chunkX, chunkZ);
             change.accept(created);
-            this.pending.put(chunk, created);
-            this.unsubmitted.add(created);
+            this.unsubmitted.put(chunk, created);
             this.outstanding.incrementAndGet();
         }
     }
 
     private void submitPending() {
         synchronized (this.submitting) {
-            takeUnsubmitted().forEach(work -> this.executor.execute(this.source, work.chunkX(), work.chunkZ(), LevelLight.RADIUS, () -> run(work)));
+            takeUnsubmitted().forEach(work -> this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work)));
         }
     }
 
     private List<ChunkWork> takeUnsubmitted() {
-        synchronized (this.pending) {
-            List<ChunkWork> works = List.copyOf(this.unsubmitted);
+        synchronized (this.unsubmitted) {
+            List<ChunkWork> works = List.copyOf(this.unsubmitted.values());
             this.unsubmitted.clear();
             return works;
         }
     }
 
     private void run(ChunkWork work) {
-        synchronized (this.pending) {
-            this.pending.remove(ChunkPos.pack(work.chunkX(), work.chunkZ()));
-        }
-
         try {
             this.light.run(work);
         } catch (RuntimeException exception) {

@@ -14,7 +14,9 @@ public final class ChunkWork {
     private static final int ENABLE = 2;
     private static final int DISABLE = 3;
     private static final int PROPAGATE = 4;
+    private static final int INITIALIZE = 5;
     private static final int KIND_BITS = 3;
+    private static final int WRITE_RADIUS = LightWindow.RADIUS - 1;
 
     private final int chunkX;
     private final int chunkZ;
@@ -23,6 +25,7 @@ public final class ChunkWork {
     private final LongOpenHashSet checks = new LongOpenHashSet();
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
+    private boolean propagating;
     private boolean unloading;
 
     public ChunkWork(int chunkX, int chunkZ) {
@@ -38,6 +41,10 @@ public final class ChunkWork {
         return this.chunkZ;
     }
 
+    public int radius() {
+        return this.checks.isEmpty() && !this.propagating ? WRITE_RADIUS : LightWindow.RADIUS;
+    }
+
     public void check(BlockPos pos) {
         this.checks.add(pos.asLong());
     }
@@ -50,11 +57,13 @@ public final class ChunkWork {
         this.operations.add(enabled ? ENABLE : DISABLE);
     }
 
-    public void lightEnabledAfterUpdate(boolean enabled) {
-        this.lastOperations.add(enabled ? ENABLE : DISABLE);
+    public void initialize(boolean lighted) {
+        this.operations.add(INITIALIZE);
+        this.lastOperations.add(lighted ? ENABLE : DISABLE);
     }
 
     public void propagateLightSources() {
+        this.propagating = true;
         this.operations.add(PROPAGATE);
     }
 
@@ -62,9 +71,13 @@ public final class ChunkWork {
         this.unloading = true;
     }
 
-    public void onComplete(CompletableFuture<?> future, Runnable completion) {
-        this.futures.add(future);
+    public void onComplete(Runnable completion) {
         this.completions.add(completion);
+    }
+
+    public <T> void completes(CompletableFuture<T> future, T value) {
+        this.futures.add(future);
+        this.completions.add(() -> future.complete(value));
     }
 
     public void fail(Throwable failure) {
@@ -112,6 +125,7 @@ public final class ChunkWork {
                 case SECTION_EMPTY -> window.sectionStatus(operation >> KIND_BITS, true);
                 case ENABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(true));
                 case DISABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(false));
+                case INITIALIZE -> window.initialize();
                 default -> propagators.forEach(Propagator::propagateLightSources);
             }
         }

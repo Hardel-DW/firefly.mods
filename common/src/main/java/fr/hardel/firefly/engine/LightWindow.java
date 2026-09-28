@@ -211,6 +211,15 @@ final class LightWindow {
         }
     }
 
+    void initialize() {
+        LevelChunkSection[] sections = this.blocks[CENTER];
+        for (int index = 0; index < sections.length; index++) {
+            if (!sections[index].hasOnlyAir()) {
+                sectionStatus(index + 1, false);
+            }
+        }
+    }
+
     void unload() {
         LightColumn center = columnIfPresent(CENTER);
         if (center != null) {
