@@ -1,6 +1,5 @@
 package fr.hardel.firefly.engine;
 
-import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import net.minecraft.core.Direction;
 
 final class LightQueue {
@@ -11,19 +10,38 @@ final class LightQueue {
     private static final int DIRECTIONS_SHIFT = LEVEL_SHIFT + 4;
     private static final long FROM_EMPTY_SHAPE = 1L << DIRECTIONS_SHIFT + 6;
     private static final long FROM_EMISSION = FROM_EMPTY_SHAPE << 1;
+    private static final int INITIAL_CAPACITY = 1 << 12;
 
-    private final LongArrayFIFOQueue entries = new LongArrayFIFOQueue();
+    private long[] entries = new long[INITIAL_CAPACITY];
+    private int head;
+    private int tail;
 
     void add(long entry) {
-        this.entries.enqueue(entry);
+        if (this.tail - this.head == this.entries.length) {
+            grow();
+        }
+
+        this.entries[this.tail++ & this.entries.length - 1] = entry;
     }
 
     long next() {
-        return this.entries.dequeueLong();
+        return this.entries[this.head++ & this.entries.length - 1];
     }
 
     boolean isEmpty() {
-        return this.entries.isEmpty();
+        return this.head == this.tail;
+    }
+
+    private void grow() {
+        long[] grown = new long[this.entries.length << 1];
+        int size = this.tail - this.head;
+        for (int index = 0; index < size; index++) {
+            grown[index] = this.entries[this.head + index & this.entries.length - 1];
+        }
+
+        this.entries = grown;
+        this.head = 0;
+        this.tail = size;
     }
 
     static long entry(int cell, int level, int directions, boolean fromEmptyShape, boolean fromEmission) {

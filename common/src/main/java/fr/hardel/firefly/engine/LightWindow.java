@@ -40,40 +40,46 @@ final class LightWindow {
     private final LightEmission emission;
     private final QueuedSections queued;
     private final ChunkSkyLightSources emptySources;
-    private final int chunkX;
-    private final int chunkZ;
     private final int minSection;
     private final int sections;
-    private final int originX;
-    private final int originZ;
     private final int minBlockY;
     private final @Nullable LightChunk[] chunks = new LightChunk[CHUNKS * CHUNKS];
     private final LevelChunkSection[][] blocks = new LevelChunkSection[CHUNKS * CHUNKS][];
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+    private int chunkX;
+    private int chunkZ;
+    private int originX;
+    private int originZ;
 
-    LightWindow(LightChunkGetter source, LightEmission emission, QueuedSections queued, ChunkSkyLightSources emptySources, boolean hasSky, int chunkX, int chunkZ, int minSection,
-        int sections) {
+    LightWindow(LightChunkGetter source, LightEmission emission, QueuedSections queued, ChunkSkyLightSources emptySources, boolean hasSky, int minSection, int sections) {
         this.source = source;
         this.emission = emission;
         this.queued = queued;
         this.emptySources = emptySources;
-        this.chunkX = chunkX;
-        this.chunkZ = chunkZ;
         this.minSection = minSection;
         this.sections = sections;
+        this.minBlockY = SectionPos.sectionToBlockCoord(minSection);
+        this.block = new Layer(LightLayer.BLOCK);
+        this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
+    }
+
+    void open(int chunkX, int chunkZ) {
+        this.chunkX = chunkX;
+        this.chunkZ = chunkZ;
         this.originX = SectionPos.sectionToBlockCoord(chunkX - RADIUS);
         this.originZ = SectionPos.sectionToBlockCoord(chunkZ - RADIUS);
-        this.minBlockY = SectionPos.sectionToBlockCoord(minSection);
         for (int dx = 0; dx < CHUNKS; dx++) {
             for (int dz = 0; dz < CHUNKS; dz++) {
-                LightChunk chunk = source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk chunk = this.source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
                 this.chunks[dx * CHUNKS + dz] = chunk;
                 this.blocks[dx * CHUNKS + dz] = chunk == null ? null : ((ChunkAccess) chunk).getSections();
             }
         }
 
-        this.block = new Layer(LightLayer.BLOCK);
-        this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
+        this.block.open();
+        if (this.sky != null) {
+            this.sky.open();
+        }
     }
 
     int cell(int blockX, int blockY, int blockZ) {
@@ -248,6 +254,15 @@ final class LightWindow {
         }
     }
 
+    void close() {
+        Arrays.fill(this.chunks, null);
+        Arrays.fill(this.blocks, null);
+        this.block.close();
+        if (this.sky != null) {
+            this.sky.close();
+        }
+    }
+
     private void updateStored(int chunkIndex, int section) {
         if (this.chunks[chunkIndex] == null)
             return;
@@ -329,12 +344,32 @@ final class LightWindow {
             this.owned = new boolean[slots];
             this.removing = new boolean[slots];
             this.changed = new boolean[slots];
+        }
+
+        private void open() {
             for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
                 LightColumn column = columnIfPresent(chunkIndex);
                 for (int section = 0; column != null && section < LightWindow.this.sections; section++) {
-                    this.current[chunkIndex * LightWindow.this.sections + section] = column.sections(type).get(section);
+                    this.current[chunkIndex * LightWindow.this.sections + section] = column.sections(this.type).get(section);
                 }
             }
+        }
+
+        private void close() {
+            for (int index = 0; index < this.changes.size(); index++) {
+                int slot = this.changes.getInt(index);
+                this.owned[slot] = false;
+                this.changed[slot] = false;
+            }
+
+            for (int index = 0; index < this.notifications.size(); index++) {
+                this.notified[this.notifications.getInt(index)] = false;
+            }
+
+            Arrays.fill(this.current, null);
+            this.changes.clear();
+            this.notifications.clear();
+            this.dequeued.clear();
         }
 
         int level(int cell) {
