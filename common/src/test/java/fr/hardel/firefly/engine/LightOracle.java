@@ -12,14 +12,14 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
 final class LightOracle {
     static final Engine<LevelLightEngine> VANILLA = (world, sky) -> new LevelLightEngine(world, true, sky);
-    private static final long FIRST_SEED = Long.getLong("firefly.oracle.firstSeed", 0);
-    private static final int WORLDS = Integer.getInteger("firefly.oracle.worlds", 4);
-    private static final int[][] HEIGHTS = {{-16, 64}, {0, 48}, {-64, 128}};
+    static final Worlds WORLDS = new Worlds(Long.getLong("firefly.oracle.firstSeed", 0), Integer.getInteger("firefly.oracle.worlds", 4),
+        List.of(new Height(-16, 64), new Height(0, 48), new Height(-64, 128)), TestWorld.PALETTE);
     private static final int EDITS = 600;
     private static final int EDITS_PER_BATCH = 20;
     private static final int MISSED_EVERY = 50;
@@ -38,19 +38,22 @@ final class LightOracle {
     }
 
     static <E extends LevelLightEngine> List<String> differences(Engine<E> tested, boolean missing) {
-        return cases().flatMap(world -> compare(tested, world, missing).stream()).toList();
+        return differences(tested, WORLDS, missing);
+    }
+
+    static <E extends LevelLightEngine> List<String> differences(Engine<E> tested, Worlds worlds) {
+        return differences(tested, worlds, false);
     }
 
     static List<String> referenceDifferences() {
-        return cases().flatMap(world -> {
+        return WORLDS.cases().flatMap(world -> {
             List<TestWorld.Edit> edits = world.edits();
             return read("%s, light from zero twice".formatted(world), world.lightFromZero(edits), world.lightFromZero(edits)).stream();
         }).toList();
     }
 
-    private static Stream<Case> cases() {
-        return LongStream.range(FIRST_SEED, FIRST_SEED + WORLDS).boxed()
-            .flatMap(seed -> Arrays.stream(HEIGHTS).flatMap(height -> Stream.of(true, false).map(sky -> new Case(seed, height[0], height[1], sky))));
+    private static <E extends LevelLightEngine> List<String> differences(Engine<E> tested, Worlds worlds, boolean missing) {
+        return worlds.cases().flatMap(world -> compare(tested, world, missing).stream()).toList();
     }
 
     private static <E extends LevelLightEngine> List<String> compare(Engine<E> tested, Case world, boolean missing) {
@@ -76,7 +79,7 @@ final class LightOracle {
         return differences;
     }
 
-    private static List<String> read(String world, LevelLightEngine reference, LevelLightEngine candidate) {
+    static List<String> read(String world, LevelLightEngine reference, LevelLightEngine candidate) {
         int minY = SectionPos.sectionToBlockCoord(reference.getMinLightSection());
         int maxY = SectionPos.sectionToBlockCoord(reference.getMaxLightSection()) - 1;
         int max = (TestWorld.SIZE - 1) * 16 - 1;
@@ -88,15 +91,25 @@ final class LightOracle {
         return count == 0 ? List.of() : List.of("%s: %d blocks differ, first %s".formatted(world, count, differences.get().limit(SHOWN).toList()));
     }
 
-    private record Case(long seed, int minY, int height, boolean sky) {
+    record Worlds(long firstSeed, int count, List<Height> heights, List<BlockState> palette) {
+        private Stream<Case> cases() {
+            return LongStream.range(this.firstSeed, this.firstSeed + this.count).boxed().flatMap(seed -> this.heights.stream()
+                .flatMap(height -> Stream.of(true, false).map(sky -> new Case(seed, height.minY, height.height, sky, this.palette))));
+        }
+    }
+
+    record Height(int minY, int height) {
+    }
+
+    private record Case(long seed, int minY, int height, boolean sky, List<BlockState> palette) {
         private TestWorld create() {
-            return new TestWorld(this.seed, this.minY, this.height);
+            return new TestWorld(this.seed, this.minY, this.height, this.palette);
         }
 
         private List<TestWorld.Edit> edits() {
             LevelHeightAccessor height = LevelHeightAccessor.create(this.minY, this.height);
             RandomSource random = RandomSource.create(~this.seed);
-            return Stream.generate(() -> TestWorld.randomEdit(random, height)).limit(EDITS).toList();
+            return Stream.generate(() -> TestWorld.randomEdit(random, height, this.palette)).limit(EDITS).toList();
         }
 
         private LevelLightEngine lightFromZero(List<TestWorld.Edit> edits) {

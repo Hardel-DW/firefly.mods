@@ -56,11 +56,13 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
     private static final PalettedContainerFactory CONTAINERS = containers();
 
     private final LevelHeightAccessor height;
+    private final List<BlockState> palette;
     private final ProtoChunk[] chunks = new ProtoChunk[SIZE * SIZE];
     private @Nullable LightLog log;
 
-    TestWorld(long seed, int minY, int height) {
+    TestWorld(long seed, int minY, int height, List<BlockState> palette) {
         this.height = LevelHeightAccessor.create(minY, height);
+        this.palette = palette;
         RandomSource random = RandomSource.create(seed);
         for (int x = 0; x < SIZE; x++) {
             for (int z = 0; z < SIZE; z++) {
@@ -105,6 +107,10 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
 
     void setUnseen(Edit edit) {
         section(edit.pos).setBlockState(edit.pos.getX() & 15, edit.pos.getY() & 15, edit.pos.getZ() & 15, edit.state);
+    }
+
+    List<ProtoChunk> chunks() {
+        return List.of(this.chunks);
     }
 
     int minBlockY() {
@@ -208,13 +214,13 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
 
     private void scatter(RandomSource random, int count) {
         for (int block = 0; block < count; block++) {
-            setUnseen(randomEdit(random, this.height));
+            setUnseen(randomEdit(random, this.height, this.palette));
         }
     }
 
-    static Edit randomEdit(RandomSource random, LevelHeightAccessor height) {
+    static Edit randomEdit(RandomSource random, LevelHeightAccessor height, List<BlockState> palette) {
         BlockPos pos = new BlockPos(random.nextInt(SIZE * 16), height.getMinY() + random.nextInt(height.getHeight()), random.nextInt(SIZE * 16));
-        return new Edit(pos, PALETTE.get(random.nextInt(PALETTE.size())));
+        return new Edit(pos, palette.get(random.nextInt(palette.size())));
     }
 
     private boolean inside(BlockPos pos) {
