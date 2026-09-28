@@ -2,7 +2,9 @@
 	"required": true,
 	"package": "fr.hardel.firefly.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"mixins": [],
+	"mixins": [
+		"ChunkAccessMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	},
