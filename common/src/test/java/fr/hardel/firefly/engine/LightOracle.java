@@ -15,7 +15,7 @@ import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
 final class LightOracle {
-    static final Engine VANILLA = (world, sky) -> new LevelLightEngine(world, true, sky);
+    static final Engine<LevelLightEngine> VANILLA = (world, sky) -> new LevelLightEngine(world, true, sky);
     private static final long FIRST_SEED = Long.getLong("firefly.oracle.firstSeed", 0);
     private static final int WORLDS = Integer.getInteger("firefly.oracle.worlds", 4);
     private static final int[][] HEIGHTS = {{-16, 64}, {0, 48}, {-64, 128}};
@@ -28,11 +28,15 @@ final class LightOracle {
     }
 
     @FunctionalInterface
-    interface Engine {
-        LevelLightEngine create(LightChunkGetter world, boolean sky);
+    interface Engine<E extends LevelLightEngine> {
+        E create(LightChunkGetter world, boolean sky);
+
+        default void settle(E engine) {
+            engine.runLightUpdates();
+        }
     }
 
-    static List<String> differences(Engine tested, boolean missing) {
+    static <E extends LevelLightEngine> List<String> differences(Engine<E> tested, boolean missing) {
         List<String> differences = new ArrayList<>();
         for (long seed = FIRST_SEED; seed < FIRST_SEED + WORLDS; seed++) {
             for (int[] height : HEIGHTS) {
@@ -44,14 +48,14 @@ final class LightOracle {
         return differences;
     }
 
-    private static List<String> compare(Engine tested, long seed, int minY, int height, boolean sky, boolean missing) {
+    private static <E extends LevelLightEngine> List<String> compare(Engine<E> tested, long seed, int minY, int height, boolean sky, boolean missing) {
         String world = "seed %d, height %d to %d, sky %s".formatted(seed, minY, minY + height, sky);
         TestWorld reference = new TestWorld(seed, minY, height);
         TestWorld candidate = new TestWorld(seed, minY, height);
         LevelLightEngine referenceEngine = VANILLA.create(reference, sky);
-        LevelLightEngine candidateEngine = tested.create(candidate, sky);
-        reference.light(referenceEngine);
-        candidate.light(candidateEngine);
+        E candidateEngine = tested.create(candidate, sky);
+        reference.light(referenceEngine, VANILLA);
+        candidate.light(candidateEngine, tested);
         List<String> differences = new ArrayList<>(read("%s, generated".formatted(world), referenceEngine, candidateEngine));
 
         RandomSource edits = RandomSource.create(~seed);
@@ -62,13 +66,13 @@ final class LightOracle {
             reference.set(pos, state);
             write.accept(pos, state);
             if (edit % EDITS_PER_BATCH == 0) {
-                referenceEngine.runLightUpdates();
-                candidateEngine.runLightUpdates();
+                VANILLA.settle(referenceEngine);
+                tested.settle(candidateEngine);
             }
         }
 
-        referenceEngine.runLightUpdates();
-        candidateEngine.runLightUpdates();
+        VANILLA.settle(referenceEngine);
+        tested.settle(candidateEngine);
         differences.addAll(read("%s, edited".formatted(world), referenceEngine, candidateEngine));
         return differences;
     }

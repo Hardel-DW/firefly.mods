@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
 
 public final class ChunkWork {
@@ -21,6 +22,7 @@ public final class ChunkWork {
     private final IntArrayList lastOperations = new IntArrayList();
     private final LongOpenHashSet checks = new LongOpenHashSet();
     private final List<Runnable> completions = new ArrayList<>();
+    private final List<CompletableFuture<?>> futures = new ArrayList<>();
     private boolean unloading;
 
     public ChunkWork(int chunkX, int chunkZ) {
@@ -60,8 +62,13 @@ public final class ChunkWork {
         this.unloading = true;
     }
 
-    public void onComplete(Runnable completion) {
+    public void onComplete(CompletableFuture<?> future, Runnable completion) {
+        this.futures.add(future);
         this.completions.add(completion);
+    }
+
+    public void fail(Throwable failure) {
+        this.futures.forEach(future -> future.completeExceptionally(failure));
     }
 
     void run(LightWindow window, List<Propagator> propagators) {

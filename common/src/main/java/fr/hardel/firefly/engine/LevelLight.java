@@ -6,6 +6,8 @@ import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 
 public final class LevelLight {
+    public static final int RADIUS = LightWindow.RADIUS;
+
     private final LightChunkGetter source;
     private final LightEmission emission;
     private final QueuedSections queued;

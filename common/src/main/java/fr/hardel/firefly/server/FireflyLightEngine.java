@@ -1,17 +1,17 @@
 package fr.hardel.firefly.server;
 
+import fr.hardel.firefly.Firefly;
 import fr.hardel.firefly.engine.ChunkWork;
 import fr.hardel.firefly.engine.LevelLight;
 import fr.hardel.firefly.engine.LightEmission;
+import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.QueuedSections;
-import com.mojang.logging.LogUtils;
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -28,10 +28,8 @@ import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LayerLightEventListener;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
 
 public final class FireflyLightEngine extends ThreadedLevelLightEngine {
-    private static final Logger LOGGER = LogUtils.getLogger();
     private static final int FULL = 15;
 
     private final LightChunkGetter source;
@@ -40,21 +38,22 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final int minSection;
     private final LightReader block;
     private final @Nullable LightReader sky;
-    private final Executor runner;
-    private final AtomicBoolean scheduled = new AtomicBoolean();
-    private final Long2ObjectLinkedOpenHashMap<ChunkWork> pending = new Long2ObjectLinkedOpenHashMap<>();
+    private final LightExecutor executor;
+    private final Long2ObjectOpenHashMap<ChunkWork> pending = new Long2ObjectOpenHashMap<>();
+    private final AtomicInteger outstanding = new AtomicInteger();
 
-    public FireflyLightEngine(LightChunkGetter source, ChunkMap chunkMap, boolean hasSkyLight, ConsecutiveExecutor executor, ChunkTaskDispatcher dispatcher,
-        LightEmission emission, Executor runner) {
-        super(source, chunkMap, hasSkyLight, executor, dispatcher);
+    public FireflyLightEngine(LightChunkGetter source, ChunkMap chunkMap, boolean hasSkyLight, ConsecutiveExecutor consecutiveExecutor, ChunkTaskDispatcher dispatcher,
+        LightEmission emission, LightExecutor executor) {
+        super(source, chunkMap, hasSkyLight, consecutiveExecutor, dispatcher);
         this.source = source;
-        this.runner = runner;
+        this.executor = executor;
         this.minSection = getMinLightSection();
         this.queued = new QueuedSections(getLightSectionCount());
         this.light = new LevelLight(source, emission, this.queued, hasSkyLight, this.minSection, getLightSectionCount());
         this.block = new LightReader(this, source, this.queued, LightLayer.BLOCK, this.minSection);
         this.sky = hasSkyLight ? new LightReader(this, source, this.queued, LightLayer.SKY, this.minSection) : null;
-        LOGGER.info("Firefly lights {} sections with sky {} and emission {}", getLightSectionCount(), hasSkyLight, emission.getClass().getSimpleName());
+        Firefly.LOGGER.info("Firefly lights {} sections with sky {}, emission {} and executor {}", getLightSectionCount(), hasSkyLight,
+            emission.getClass().getSimpleName(), executor.getClass().getSimpleName());
     }
 
     @Override
@@ -101,7 +100,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             }
 
             work.lightEnabledAfterUpdate(lighted);
-            work.onComplete(() -> {
+            work.onComplete(lit, () -> {
                 this.queued.retain(pos.x(), pos.z(), false);
                 lit.complete(chunk);
             });
@@ -119,7 +118,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
                 work.propagateLightSources();
             }
 
-            work.onComplete(() -> {
+            work.onComplete(lit, () -> {
                 chunk.setLightCorrect(true);
                 lit.complete(chunk);
             });
@@ -130,7 +129,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
         CompletableFuture<Void> done = new CompletableFuture<>();
-        update(chunkX, chunkZ, work -> work.onComplete(() -> done.complete(null)));
+        update(chunkX, chunkZ, work -> work.onComplete(done, () -> done.complete(null)));
         return done;
     }
 
@@ -141,26 +140,8 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     }
 
     @Override
-    public void tryScheduleUpdate() {
-        schedule();
-    }
-
-    @Override
-    public int runLightUpdates() {
-        int count = 0;
-        for (ChunkWork work = take(); work != null; work = take()) {
-            this.light.run(work);
-            count++;
-        }
-
-        return count;
-    }
-
-    @Override
     public boolean hasLightWork() {
-        synchronized (this.pending) {
-            return !this.pending.isEmpty();
-        }
+        return this.outstanding.get() > 0;
     }
 
     @Override
@@ -188,30 +169,41 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     }
 
     private void update(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
+        ChunkWork created = addToPending(chunkX, chunkZ, change);
+        if (created != null) {
+            this.executor.execute(this.source, chunkX, chunkZ, LevelLight.RADIUS, () -> run(created));
+        }
+    }
+
+    private @Nullable ChunkWork addToPending(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
+        long chunk = ChunkPos.pack(chunkX, chunkZ);
         synchronized (this.pending) {
-            change.accept(this.pending.computeIfAbsent(ChunkPos.pack(chunkX, chunkZ), _ -> new ChunkWork(chunkX, chunkZ)));
-        }
+            ChunkWork work = this.pending.get(chunk);
+            if (work != null) {
+                change.accept(work);
+                return null;
+            }
 
-        schedule();
-    }
-
-    private void schedule() {
-        if (this.scheduled.compareAndSet(false, true)) {
-            this.runner.execute(this::drain);
-        }
-    }
-
-    private void drain() {
-        runLightUpdates();
-        this.scheduled.set(false);
-        if (hasLightWork()) {
-            schedule();
+            ChunkWork created = new ChunkWork(chunkX, chunkZ);
+            change.accept(created);
+            this.pending.put(chunk, created);
+            this.outstanding.incrementAndGet();
+            return created;
         }
     }
 
-    private @Nullable ChunkWork take() {
+    private void run(ChunkWork work) {
         synchronized (this.pending) {
-            return this.pending.isEmpty() ? null : this.pending.removeFirst();
+            this.pending.remove(ChunkPos.pack(work.chunkX(), work.chunkZ()));
+        }
+
+        try {
+            this.light.run(work);
+        } catch (RuntimeException exception) {
+            Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), exception);
+            work.fail(exception);
+        } finally {
+            this.outstanding.decrementAndGet();
         }
     }
 

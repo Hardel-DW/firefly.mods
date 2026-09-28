@@ -72,7 +72,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
         scatter(random, SIZE * SIZE * 24);
     }
 
-    void light(LevelLightEngine engine) {
+    <E extends LevelLightEngine> void light(E engine, LightOracle.Engine<E> tested) {
         for (ProtoChunk chunk : this.chunks) {
             chunk.initializeLightSources();
             for (int index = 0; index < chunk.getSectionsCount(); index++) {
@@ -82,7 +82,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
             }
         }
 
-        engine.runLightUpdates();
+        tested.settle(engine);
         for (ProtoChunk chunk : this.chunks) {
             engine.setLightEnabled(chunk.getPos(), false);
             engine.propagateLightSources(chunk.getPos());
@@ -90,7 +90,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
             chunk.setLightEngine(engine);
         }
 
-        engine.runLightUpdates();
+        tested.settle(engine);
     }
 
     void set(BlockPos pos, BlockState state) {
@@ -145,7 +145,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
         return this.height.getMinY();
     }
 
-    private ProtoChunk chunk(BlockPos pos) {
+    ProtoChunk chunk(BlockPos pos) {
         return this.chunks[SectionPos.blockToSectionCoord(pos.getX()) * SIZE + SectionPos.blockToSectionCoord(pos.getZ())];
     }
 
