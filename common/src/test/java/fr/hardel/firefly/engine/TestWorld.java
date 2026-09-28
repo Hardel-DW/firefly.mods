@@ -85,7 +85,6 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
         engine.runLightUpdates();
         for (ProtoChunk chunk : this.chunks) {
             engine.setLightEnabled(chunk.getPos(), false);
-            engine.retainData(chunk.getPos(), false);
             engine.propagateLightSources(chunk.getPos());
             chunk.setPersistedStatus(ChunkStatus.LIGHT);
             chunk.setLightEngine(engine);

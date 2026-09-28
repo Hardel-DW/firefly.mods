@@ -15,7 +15,9 @@ dependencies {
 }
 
 test {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'mod'
+	}
 }
 
 loom {

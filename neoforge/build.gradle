@@ -32,6 +32,7 @@ def accessTransformer = tasks.register('accessTransformer') {
 }
 
 sourceSets.main.resources.srcDir(accessTransformer.map { layout.buildDirectory.dir('generated/accesstransformer').get() })
+sourceSets.test.java.srcDir(project(':common').file('src/test/java'))
 
 neoForge {
 	version = rootProject.neoforge_version
@@ -41,6 +42,11 @@ neoForge {
 		firefly {
 			sourceSet sourceSets.main
 		}
+	}
+
+	unitTest {
+		enable()
+		testedMod = mods.firefly
 	}
 
 	runs {
@@ -62,8 +68,22 @@ neoForge {
 	}
 }
 
+dependencies {
+	testImplementation platform("org.junit:junit-bom:5.12.2")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
 tasks.named('compileJava') {
 	source(project(':common').sourceSets.main.allJava)
+}
+
+test {
+	systemProperty 'firefly.oracle.firstSeed', providers.gradleProperty('oracleFirstSeed').getOrElse('0')
+	systemProperty 'firefly.oracle.worlds', providers.gradleProperty('oracleWorlds').getOrElse('4')
+	useJUnitPlatform {
+		includeTags 'mod'
+	}
 }
 
 tasks.named('sourcesJar') {

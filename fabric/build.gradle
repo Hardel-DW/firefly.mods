@@ -13,7 +13,6 @@ dependencies {
 	testImplementation platform("org.junit:junit-bom:5.12.2")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 	testImplementation "net.fabricmc:fabric-loader-junit:${rootProject.loader_version}"
-	testImplementation rootProject.project(':common').sourceSets.test.output
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
@@ -36,6 +35,8 @@ loom {
 	}
 }
 
+sourceSets.test.java.srcDir(project(':common').file('src/test/java'))
+
 tasks.named('compileJava') {
 	source(project(':common').sourceSets.main.allJava)
 }
@@ -45,7 +46,11 @@ tasks.named('sourcesJar') {
 }
 
 test {
-	useJUnitPlatform()
+	systemProperty 'firefly.oracle.firstSeed', providers.gradleProperty('oracleFirstSeed').getOrElse('0')
+	systemProperty 'firefly.oracle.worlds', providers.gradleProperty('oracleWorlds').getOrElse('4')
+	useJUnitPlatform {
+		includeTags 'mod'
+	}
 }
 
 processResources {
