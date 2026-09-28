@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.dimension.DimensionType;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,12 +29,18 @@ class FireflyLightEngineTest {
         throw FAILURE;
     };
     private static final LightEmission ONE_LEVEL_LOW = (state, _, _) -> Math.max(0, state.getLightEmission() - 1);
+    private static final LightOracle.Worlds TALLEST = new LightOracle.Worlds(2, 1, List.of(new LightOracle.Height(DimensionType.MIN_Y, DimensionType.Y_SIZE)), TestWorld.PALETTE);
 
     @Test
     void fireflyLightsLikeLightFromZeroAndKeepsSharedSections() {
         assertEquals(List.of(), LightOracle.differences(new Parallel(LightEmission.VANILLA), false));
         assertEquals(List.of(0), distinctBytes(Nibbles.ZERO));
         assertEquals(List.of(-1), distinctBytes(Nibbles.FULL));
+    }
+
+    @Test
+    void theTallestWorldADatapackAllowsLightsLikeLightFromZero() {
+        assertEquals(List.of(), LightOracle.differences(new Parallel(LightEmission.VANILLA), TALLEST));
     }
 
     @Test
