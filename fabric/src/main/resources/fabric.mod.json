@@ -10,6 +10,11 @@
 	"license": "All-Rights-Reserved",
 	"accessWidener": "firefly.accesswidener",
 	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"fr.hardel.firefly.fabric.FireflyFabric"
+		]
+	},
 	"mixins": [
 		"firefly.mixins.json"
 	],

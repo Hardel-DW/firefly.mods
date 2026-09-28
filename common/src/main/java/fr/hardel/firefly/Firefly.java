@@ -1,0 +1,12 @@
+package fr.hardel.firefly;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public final class Firefly {
+    public static final String MOD_ID = "firefly";
+    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+
+    private Firefly() {
+    }
+}
