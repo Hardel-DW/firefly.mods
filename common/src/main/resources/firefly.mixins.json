@@ -8,6 +8,7 @@
 		"ChunkStatusTasksMixin",
 		"ImposterProtoChunkMixin",
 		"LevelChunkMixin",
+		"ProtoChunkMixin",
 		"SerializableChunkDataMixin"
 	],
 	"injectors": {

@@ -25,7 +25,6 @@ record Parallel(LightEmission emission) implements LightOracle.Engine<FireflyLig
         boolean[] lit = new boolean[chunks.size()];
         for (int index = 0; index < chunks.size(); index++) {
             ProtoChunk chunk = chunks.get(index);
-            chunk.initializeLightSources();
             engine.initializeLightAhead(chunk, false);
             initialized[index] = true;
             IntStream.range(0, chunks.size()).filter(candidate -> !lit[candidate] && neighborsInitialized(chunks.get(candidate).getPos(), initialized)).forEach(candidate -> {

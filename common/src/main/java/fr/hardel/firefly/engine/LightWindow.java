@@ -212,6 +212,12 @@ final class LightWindow {
     }
 
     void initialize() {
+        ChunkAccess center = (ChunkAccess) center();
+        ChunkSkyLightSources sources = center.getSkyLightSources();
+        synchronized (sources) {
+            center.initializeLightSources();
+        }
+
         LevelChunkSection[] sections = this.blocks[CENTER];
         for (int index = 0; index < sections.length; index++) {
             if (!sections[index].hasOnlyAir()) {
