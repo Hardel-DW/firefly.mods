@@ -11,6 +11,10 @@ public interface LightEmission {
 
     int emission(BlockState state, BlockGetter level, BlockPos pos);
 
+    default boolean mayEmit(BlockState state) {
+        return state.getLightEmission() != 0;
+    }
+
     static LightEmission loaded() {
         return ServiceLoader.load(LightEmission.class, LightEmission.class.getClassLoader()).findFirst().orElse(VANILLA);
     }

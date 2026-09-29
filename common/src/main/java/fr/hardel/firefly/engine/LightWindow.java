@@ -201,6 +201,9 @@ final class LightWindow {
     }
 
     int emission(int cell, BlockState state) {
+        if (!this.emission.mayEmit(state))
+            return 0;
+
         return this.emission.emission(state, this.source.getLevel(), this.cursor.set(blockX(cell), blockY(cell), blockZ(cell)));
     }
 

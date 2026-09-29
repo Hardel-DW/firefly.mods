@@ -10,4 +10,9 @@ public final class NeoForgeLightEmission implements LightEmission {
     public int emission(BlockState state, BlockGetter level, BlockPos pos) {
         return state.getLightEmission(level, pos);
     }
+
+    @Override
+    public boolean mayEmit(BlockState state) {
+        return state.hasDynamicLightEmission() || state.getLightEmission() != 0;
+    }
 }
