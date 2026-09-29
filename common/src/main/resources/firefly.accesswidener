@@ -1,1 +1,2 @@
 accessWidener v2 official
+accessible method net/minecraft/world/level/chunk/PalettedContainer get (I)Ljava/lang/Object;

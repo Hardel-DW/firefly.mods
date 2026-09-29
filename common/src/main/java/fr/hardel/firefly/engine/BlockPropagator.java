@@ -56,6 +56,6 @@ final class BlockPropagator extends Propagator {
 
     private int emission(int cell, BlockState state) {
         int emission = this.window.emission(cell, state);
-        return emission > 0 && this.layer.enabled(LightWindow.chunkIndex(cell)) ? emission : 0;
+        return emission > 0 && this.layer.enabled(this.window.chunkIndex(cell)) ? emission : 0;
     }
 }

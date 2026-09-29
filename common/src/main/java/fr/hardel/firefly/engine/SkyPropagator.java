@@ -8,6 +8,11 @@ import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 final class SkyPropagator extends Propagator {
     private static final int SOURCE = 15;
     private static final int BELOW_AND_SIDES = LightQueue.allBut(Direction.UP);
+    private static final int GRID = 18;
+    private static final int COLUMN_STEP = 256;
+
+    private final int[] lowestSources = new int[GRID * GRID];
+    private int highestSourceY;
 
     SkyPropagator(LightWindow window, LightWindow.Layer layer) {
         super(window, layer);
@@ -31,11 +36,11 @@ final class SkyPropagator extends Propagator {
     @Override
     void propagateLightSources() {
         this.layer.setEnabled(LightWindow.CENTER, true);
-        Sources sources = Sources.of(this.window);
+        readSources();
         boolean sourcesBelow = true;
         for (int section = this.layer.topSection(LightWindow.CENTER); section >= 0 && sourcesBelow; section--) {
             if (this.layer.stored(LightWindow.CENTER, section)) {
-                sourcesBelow = lightSection(section, sources);
+                sourcesBelow = lightSection(section);
             }
         }
     }
@@ -45,7 +50,7 @@ final class SkyPropagator extends Propagator {
         int x = this.window.blockX(cell);
         int y = this.window.blockY(cell);
         int z = this.window.blockZ(cell);
-        int lowestSourceY = this.layer.enabled(LightWindow.chunkIndex(cell)) ? this.window.lowestSourceY(x, z, Integer.MAX_VALUE) : Integer.MAX_VALUE;
+        int lowestSourceY = this.layer.enabled(this.window.chunkIndex(cell)) ? this.window.lowestSourceY(x, z, Integer.MAX_VALUE) : Integer.MAX_VALUE;
         if (lowestSourceY != Integer.MAX_VALUE) {
             removeSourcesBelow(cell, lowestSourceY);
             addSourcesAbove(cell, lowestSourceY);
@@ -83,8 +88,8 @@ final class SkyPropagator extends Propagator {
         if (localX != 0 && localX != 15 && localZ != 0 && localZ != 15)
             return 0;
 
-        int chunk = LightWindow.chunkIndex(cell);
-        int section = LightWindow.sectionIndex(cell);
+        int chunk = this.window.chunkIndex(cell);
+        int section = this.window.sectionIndex(cell);
         int empty = 0;
         while (section - empty - 1 >= 0 && !this.layer.stored(chunk, section - empty - 1)) {
             empty++;
@@ -98,8 +103,8 @@ final class SkyPropagator extends Propagator {
         if (emptySectionsBelow == 0 || !crossedSectionEdge(direction, LightWindow.localX(cell), LightWindow.localZ(cell)))
             return;
 
-        int chunk = LightWindow.chunkIndex(cell);
-        int top = LightWindow.sectionIndex(cell) - 1;
+        int chunk = this.window.chunkIndex(cell);
+        int top = this.window.sectionIndex(cell) - 1;
         for (int section = top; section > top - emptySectionsBelow; section--) {
             if (this.layer.stored(chunk, section)) {
                 spreadInSection(cell, section, direction, level, increase);
@@ -109,7 +114,7 @@ final class SkyPropagator extends Propagator {
 
     private void spreadInSection(int cell, int section, Direction direction, int level, boolean increase) {
         for (int localY = 15; localY >= 0; localY--) {
-            int target = LightWindow.withY(cell, section, localY);
+            int target = this.window.withY(cell, section, localY);
             this.layer.set(target, increase ? level : 0);
             if (increase && level > 1) {
                 increase(target, level, LightQueue.allBut(opposite(direction)), true, false);
@@ -125,7 +130,7 @@ final class SkyPropagator extends Propagator {
         if (lowestSourceY <= this.window.sectionBottomY(0))
             return;
 
-        int chunk = LightWindow.chunkIndex(cell);
+        int chunk = this.window.chunkIndex(cell);
         int startY = lowestSourceY - 1;
         for (int section = this.window.sectionIndexOfY(startY); section >= 0; section--) {
             if (this.layer.stored(chunk, section) && !removeSourcesInSection(cell, section, startY, lowestSourceY)) {
@@ -137,7 +142,7 @@ final class SkyPropagator extends Propagator {
     private boolean removeSourcesInSection(int cell, int section, int startY, int lowestSourceY) {
         int sectionBottomY = this.window.sectionBottomY(section);
         for (int y = Math.min(sectionBottomY + 15, startY); y >= sectionBottomY; y--) {
-            int target = LightWindow.withY(cell, section, y - sectionBottomY);
+            int target = this.window.withY(cell, section, y - sectionBottomY);
             if (this.layer.get(target) != SOURCE)
                 return false;
 
@@ -154,7 +159,7 @@ final class SkyPropagator extends Propagator {
         int neighborLowestSourceY = Math.max(
             Math.max(this.window.lowestSourceY(x - 1, z, Integer.MIN_VALUE), this.window.lowestSourceY(x + 1, z, Integer.MIN_VALUE)),
             Math.max(this.window.lowestSourceY(x, z - 1, Integer.MIN_VALUE), this.window.lowestSourceY(x, z + 1, Integer.MIN_VALUE)));
-        int chunk = LightWindow.chunkIndex(cell);
+        int chunk = this.window.chunkIndex(cell);
         int startY = Math.max(lowestSourceY, this.window.sectionBottomY(0));
         int top = this.layer.topSection(chunk);
         for (int section = this.window.sectionIndexOfY(startY); section <= top; section++) {
@@ -167,7 +172,7 @@ final class SkyPropagator extends Propagator {
     private boolean addSourcesInSection(int cell, int section, int startY, int lowestSourceY, int neighborLowestSourceY) {
         int sectionBottomY = this.window.sectionBottomY(section);
         for (int y = Math.max(sectionBottomY, startY); y <= sectionBottomY + 15; y++) {
-            int target = LightWindow.withY(cell, section, y - sectionBottomY);
+            int target = this.window.withY(cell, section, y - sectionBottomY);
             if (this.layer.get(target) == SOURCE)
                 return false;
 
@@ -180,10 +185,35 @@ final class SkyPropagator extends Propagator {
         return true;
     }
 
-    private boolean lightSection(int section, Sources sources) {
+    private void readSources() {
+        ChunkSkyLightSources center = this.window.sourcesOrEmpty(LightWindow.CENTER);
+        ChunkSkyLightSources north = this.window.sourcesOrEmpty(LightWindow.CENTER - 1);
+        ChunkSkyLightSources south = this.window.sourcesOrEmpty(LightWindow.CENTER + 1);
+        ChunkSkyLightSources west = this.window.sourcesOrEmpty(LightWindow.CENTER - LightWindow.CHUNKS);
+        ChunkSkyLightSources east = this.window.sourcesOrEmpty(LightWindow.CENTER + LightWindow.CHUNKS);
+        this.highestSourceY = Integer.MIN_VALUE;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int lowestSourceY = center.getLowestSourceY(x, z);
+                this.lowestSources[(x + 1) * GRID + z + 1] = lowestSourceY;
+                this.highestSourceY = Math.max(this.highestSourceY, lowestSourceY);
+            }
+
+            this.lowestSources[(x + 1) * GRID] = north.getLowestSourceY(x, 15);
+            this.lowestSources[(x + 1) * GRID + GRID - 1] = south.getLowestSourceY(x, 0);
+            this.lowestSources[x + 1] = west.getLowestSourceY(15, x);
+            this.lowestSources[(GRID - 1) * GRID + x + 1] = east.getLowestSourceY(0, x);
+        }
+    }
+
+    private int lowestSourceY(int x, int z) {
+        return this.lowestSources[(x + 1) * GRID + z + 1];
+    }
+
+    private boolean lightSection(int section) {
         int sectionMinY = this.window.sectionBottomY(section);
         int sectionMaxY = sectionMinY + 15;
-        boolean filled = sources.highestSourceY <= sectionMinY;
+        boolean filled = this.highestSourceY <= sectionMinY;
         if (filled) {
             this.layer.fill(LightWindow.CENTER, section, Nibbles.FULL);
         }
@@ -191,9 +221,9 @@ final class SkyPropagator extends Propagator {
         boolean sourcesBelow = false;
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
-                int lowestSourceY = sources.center.getLowestSourceY(x, z);
+                int lowestSourceY = lowestSourceY(x, z);
                 if (lowestSourceY <= sectionMaxY) {
-                    lightColumn(x, z, sectionMinY, sectionMaxY, lowestSourceY, sources, filled);
+                    lightColumn(x, z, sectionMinY, sectionMaxY, lowestSourceY, filled);
                 }
 
                 sourcesBelow |= lowestSourceY < sectionMinY;
@@ -203,15 +233,16 @@ final class SkyPropagator extends Propagator {
         return sourcesBelow;
     }
 
-    private void lightColumn(int x, int z, int sectionMinY, int sectionMaxY, int lowestSourceY, Sources sources, boolean filled) {
-        int north = z == 0 ? sources.north.getLowestSourceY(x, 15) : sources.center.getLowestSourceY(x, z - 1);
-        int south = z == 15 ? sources.south.getLowestSourceY(x, 0) : sources.center.getLowestSourceY(x, z + 1);
-        int west = x == 0 ? sources.west.getLowestSourceY(15, z) : sources.center.getLowestSourceY(x - 1, z);
-        int east = x == 15 ? sources.east.getLowestSourceY(0, z) : sources.center.getLowestSourceY(x + 1, z);
+    private void lightColumn(int x, int z, int sectionMinY, int sectionMaxY, int lowestSourceY, boolean filled) {
+        int north = lowestSourceY(x, z - 1);
+        int south = lowestSourceY(x, z + 1);
+        int west = lowestSourceY(x - 1, z);
+        int east = lowestSourceY(x + 1, z);
         int neighborLowestSourceY = Math.max(Math.max(north, south), Math.max(west, east));
         int top = filled ? Math.min(sectionMaxY, Math.max(neighborLowestSourceY - 1, lowestSourceY)) : sectionMaxY;
+        int cell = this.window.centerCell(x, top, z) + COLUMN_STEP;
         for (int y = top; y >= Math.max(sectionMinY, lowestSourceY); y--) {
-            int cell = this.window.centerCell(x, y, z);
+            cell -= COLUMN_STEP;
             if (!filled) {
                 this.layer.write(cell, SOURCE);
             }
@@ -238,15 +269,5 @@ final class SkyPropagator extends Propagator {
             case EAST -> localX == 0;
             default -> false;
         };
-    }
-
-    private record Sources(ChunkSkyLightSources center, ChunkSkyLightSources north, ChunkSkyLightSources south, ChunkSkyLightSources west, ChunkSkyLightSources east,
-        int highestSourceY) {
-        private static Sources of(LightWindow window) {
-            ChunkSkyLightSources center = window.sourcesOrEmpty(LightWindow.CENTER);
-            return new Sources(center, window.sourcesOrEmpty(LightWindow.CENTER - 1), window.sourcesOrEmpty(LightWindow.CENTER + 1),
-                window.sourcesOrEmpty(LightWindow.CENTER - LightWindow.CHUNKS), window.sourcesOrEmpty(LightWindow.CENTER + LightWindow.CHUNKS),
-                center.getHighestLowestSourceY());
-        }
     }
 }

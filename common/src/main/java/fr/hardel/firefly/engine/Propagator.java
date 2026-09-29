@@ -94,7 +94,7 @@ abstract class Propagator {
     }
 
     private @Nullable BlockState increaseTowards(int from, long entry, int fromLevel, Direction direction, @Nullable BlockState fromState, int emptySectionsBelow) {
-        int to = LightWindow.neighbor(from, direction);
+        int to = this.window.neighbor(from, direction);
         int oldLevel = this.layer.level(to);
         if (oldLevel < 0 || fromLevel - 1 <= oldLevel)
             return fromState;
@@ -129,7 +129,7 @@ abstract class Propagator {
     }
 
     private void decreaseTowards(int from, int fromLevel, Direction direction, int emptySectionsBelow) {
-        int to = LightWindow.neighbor(from, direction);
+        int to = this.window.neighbor(from, direction);
         int toLevel = this.layer.level(to);
         if (toLevel <= 0)
             return;
