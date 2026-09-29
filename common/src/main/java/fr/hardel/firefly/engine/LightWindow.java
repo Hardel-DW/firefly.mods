@@ -296,8 +296,7 @@ final class LightWindow {
 
     private void readNonEmpty(int chunkIndex, boolean leaving) {
         for (int slot = chunkIndex * this.sections; slot < (chunkIndex + 1) * this.sections; slot++) {
-            LevelChunkSection section = this.blockSections[slot];
-            this.nonEmpty[slot] = section != null && !leaving && !section.hasOnlyAir();
+            this.nonEmpty[slot] = !leaving && this.uniformStates[slot] == null;
         }
     }
 
