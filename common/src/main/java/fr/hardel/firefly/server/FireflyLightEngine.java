@@ -192,6 +192,9 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private void submitPending() {
         synchronized (this.submitting) {
             List<ChunkWork> works = takeUnsubmitted();
+            if (works.isEmpty())
+                return;
+
             LightBatch batch = new LightBatch(works.size());
             works.forEach(work -> {
                 work.batch(batch);
@@ -202,6 +205,9 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     private List<ChunkWork> takeUnsubmitted() {
         synchronized (this.unsubmitted) {
+            if (this.unsubmitted.isEmpty())
+                return List.of();
+
             List<ChunkWork> works = List.copyOf(this.unsubmitted.values());
             this.unsubmitted.clear();
             return works;
