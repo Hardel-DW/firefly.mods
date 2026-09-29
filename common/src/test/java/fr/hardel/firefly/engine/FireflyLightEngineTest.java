@@ -6,23 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import fr.hardel.firefly.MinecraftBootstrap;
-import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.storage.Nibbles;
-import java.util.ArrayDeque;
 import java.util.List;
-import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
@@ -49,8 +44,8 @@ class FireflyLightEngineTest {
     }
 
     @Test
-    void theLightDoesNotDependOnTheOrderTheChunksAreInitializedAndLit() {
-        LongStream.rangeClosed(1, 3).forEach(order -> assertEquals(List.of(), LightOracle.differences(new Shuffled(order), false), "order %d".formatted(order)));
+    void theLightDoesNotDependOnTheOrderOfTheTasks() {
+        LongStream.rangeClosed(1, 3).forEach(order -> assertEquals(List.of(), LightOracle.differences(new Unordered(order), false), "order %d".formatted(order)));
     }
 
     @Test
@@ -128,31 +123,5 @@ class FireflyLightEngineTest {
 
     private static List<Integer> distinctBytes(byte[] data) {
         return IntStream.range(0, data.length).map(index -> data[index]).distinct().boxed().toList();
-    }
-
-    private static final class Held implements LightExecutor, LightOracle.Engine<FireflyLightEngine> {
-        private final Queue<Runnable> tasks = new ArrayDeque<>();
-
-        @Override
-        public void execute(LightChunkGetter level, int chunkX, int chunkZ, int radius, Runnable task) {
-            this.tasks.add(task);
-        }
-
-        @Override
-        public FireflyLightEngine create(LightChunkGetter world, boolean sky) {
-            return new FireflyLightEngine(world, null, sky, null, null, LightEmission.VANILLA, this);
-        }
-
-        @Override
-        public void settle(FireflyLightEngine engine) {
-            engine.tryScheduleUpdate();
-            runUntil(this.tasks::isEmpty);
-        }
-
-        private void runUntil(BooleanSupplier done) {
-            while (!done.getAsBoolean()) {
-                this.tasks.remove().run();
-            }
-        }
     }
 }

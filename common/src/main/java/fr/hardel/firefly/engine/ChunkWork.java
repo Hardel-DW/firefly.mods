@@ -13,7 +13,7 @@ public final class ChunkWork {
     private static final int ENABLE = 0;
     private static final int DISABLE = 1;
     private static final int PROPAGATE = 2;
-    private static final int WRITE_RADIUS = LightWindow.RADIUS - 1;
+    public static final int WRITE_RADIUS = LightWindow.RADIUS - 1;
 
     private final int chunkX;
     private final int chunkZ;
@@ -21,6 +21,7 @@ public final class ChunkWork {
     private final LongOpenHashSet checks = new LongOpenHashSet();
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
+    private final CompletableFuture<Void> finished = new CompletableFuture<>();
     private LightBatch batch;
     private boolean propagating;
     private boolean unloading;
@@ -36,6 +37,10 @@ public final class ChunkWork {
 
     public int chunkZ() {
         return this.chunkZ;
+    }
+
+    public CompletableFuture<Void> finished() {
+        return this.finished;
     }
 
     public LightBatch batch() {
@@ -76,7 +81,6 @@ public final class ChunkWork {
         this.completions.add(() -> future.complete(value));
     }
 
-
     void run(LightWindow window, List<Propagator> propagators) {
         window.refreshStorage(this.unloading);
         window.initializePending(propagators);
@@ -106,10 +110,12 @@ public final class ChunkWork {
     public void complete(@Nullable Throwable failure) {
         if (failure != null) {
             this.futures.forEach(future -> future.completeExceptionally(failure));
+            this.finished.complete(null);
             return;
         }
 
         this.completions.forEach(Runnable::run);
+        this.finished.complete(null);
     }
 
     private void apply(List<Propagator> propagators) {

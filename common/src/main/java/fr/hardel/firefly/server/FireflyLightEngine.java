@@ -42,6 +42,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final @Nullable LightReader sky;
     private final LightExecutor executor;
     private final Long2ObjectLinkedOpenHashMap<ChunkWork> unsubmitted = new Long2ObjectLinkedOpenHashMap<>();
+    private final WritingWorks writing = new WritingWorks();
     private final Object submitting = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
 
@@ -121,10 +122,8 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
-        CompletableFuture<Void> done = new CompletableFuture<>();
         submitPending();
-        request(chunkX, chunkZ, work -> work.completes(done, null));
-        return done;
+        return this.writing.finished(chunkX, chunkZ);
     }
 
     @Override
@@ -198,6 +197,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             LightBatch batch = new LightBatch(works.size());
             works.forEach(work -> {
                 work.batch(batch);
+                this.writing.add(work);
                 this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work));
             });
         }
@@ -217,6 +217,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private void run(ChunkWork work) {
         RuntimeException failure = lightOrFailure(work);
         work.batch().finish(this.source);
+        this.writing.remove(work);
         work.complete(failure);
         this.outstanding.decrementAndGet();
     }
