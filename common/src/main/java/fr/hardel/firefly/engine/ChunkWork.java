@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.chunk.LightChunk;
 import org.jspecify.annotations.Nullable;
 
 public final class ChunkWork {
@@ -24,7 +25,7 @@ public final class ChunkWork {
     private final CompletableFuture<Void> finished = new CompletableFuture<>();
     private LightBatch batch;
     private boolean propagating;
-    private boolean unloading;
+    private @Nullable LightChunk unloaded;
 
     public ChunkWork(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
@@ -68,8 +69,8 @@ public final class ChunkWork {
         this.operations.add(PROPAGATE);
     }
 
-    public void unload() {
-        this.unloading = true;
+    public void unload(LightChunk chunk) {
+        this.unloaded = chunk;
     }
 
     public void onComplete(Runnable completion) {
@@ -82,11 +83,16 @@ public final class ChunkWork {
     }
 
     void run(LightWindow window, List<Propagator> propagators) {
-        window.refreshStorage(this.unloading);
+        boolean leaving = this.unloaded != null && window.centerIs(this.unloaded);
+        window.refreshStorage(leaving);
         window.initializePending(propagators);
         if (!window.hasCenter()) {
             propagators.forEach(Propagator::run);
             return;
+        }
+
+        if (window.startCenter()) {
+            propagators.forEach(propagator -> propagator.reconcileFaces(LightWindow.CENTER));
         }
 
         apply(propagators);
@@ -100,7 +106,7 @@ public final class ChunkWork {
             }
         }
 
-        if (this.unloading) {
+        if (leaving) {
             window.unload();
         }
 

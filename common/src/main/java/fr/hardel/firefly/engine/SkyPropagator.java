@@ -56,6 +56,18 @@ final class SkyPropagator extends Propagator {
             addSourcesAbove(cell, lowestSourceY);
         }
 
+        recheckNode(cell, y, lowestSourceY);
+    }
+
+    @Override
+    protected void recheckNode(int cell) {
+        int lowestSourceY = this.layer.enabled(this.window.chunkIndex(cell))
+            ? this.window.lowestSourceY(this.window.blockX(cell), this.window.blockZ(cell), Integer.MAX_VALUE)
+            : Integer.MAX_VALUE;
+        recheckNode(cell, this.window.blockY(cell), lowestSourceY);
+    }
+
+    private void recheckNode(int cell, int y, int lowestSourceY) {
         if (!this.layer.stored(cell))
             return;
 

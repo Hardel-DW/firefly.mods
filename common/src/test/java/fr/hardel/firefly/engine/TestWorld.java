@@ -35,6 +35,7 @@ import net.minecraft.world.level.chunk.UpgradeData;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.ticks.ProtoChunkTicks;
 import org.jspecify.annotations.Nullable;
 
 final class TestWorld implements LightChunkGetter, BlockGetter {
@@ -162,6 +163,21 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
     @Override
     public int getMinY() {
         return this.height.getMinY();
+    }
+
+    ProtoChunk unload(ChunkPos pos) {
+        ProtoChunk unloaded = this.chunks[pos.x() * SIZE + pos.z()];
+        this.chunks[pos.x() * SIZE + pos.z()] = null;
+        return unloaded;
+    }
+
+    ProtoChunk load(ProtoChunk unloaded, ChunkStatus status, boolean lightCorrect) {
+        ChunkPos pos = unloaded.getPos();
+        ProtoChunk loaded = new ProtoChunk(pos, UpgradeData.EMPTY, unloaded.getSections(), new ProtoChunkTicks<>(), new ProtoChunkTicks<>(), this.height, CONTAINERS, null);
+        loaded.setPersistedStatus(status);
+        loaded.setLightCorrect(lightCorrect);
+        this.chunks[pos.x() * SIZE + pos.z()] = loaded;
+        return loaded;
     }
 
     ProtoChunk chunk(BlockPos pos) {

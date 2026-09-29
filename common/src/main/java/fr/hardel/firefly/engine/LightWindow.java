@@ -3,7 +3,7 @@ package fr.hardel.firefly.engine;
 import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
-import fr.hardel.firefly.storage.QueuedSections;
+import fr.hardel.firefly.storage.PendingLight;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,7 +41,6 @@ final class LightWindow {
     final @Nullable Layer sky;
     private final LightChunkGetter source;
     private final LightEmission emission;
-    private final QueuedSections queued;
     private final ChunkSkyLightSources emptySources;
     private final int minSection;
     private final int sections;
@@ -58,15 +57,15 @@ final class LightWindow {
     private final boolean[] nonEmpty;
     private final boolean[] nearNonEmpty;
     private final IntArrayList initialized = new IntArrayList();
+    private boolean savedApplied;
     private int chunkX;
     private int chunkZ;
     private int originX;
     private int originZ;
 
-    LightWindow(LightChunkGetter source, LightEmission emission, QueuedSections queued, ChunkSkyLightSources emptySources, boolean hasSky, int minSection, int sections) {
+    LightWindow(LightChunkGetter source, LightEmission emission, ChunkSkyLightSources emptySources, boolean hasSky, int minSection, int sections) {
         this.source = source;
         this.emission = emission;
-        this.queued = queued;
         this.emptySources = emptySources;
         this.minSection = minSection;
         this.sections = sections;
@@ -211,6 +210,10 @@ final class LightWindow {
         return this.chunks[CENTER] != null;
     }
 
+    boolean centerIs(LightChunk chunk) {
+        return this.chunks[CENTER] == chunk;
+    }
+
     LightChunk center() {
         LightChunk center = this.chunks[CENTER];
         if (center == null)
@@ -264,6 +267,30 @@ final class LightWindow {
         }
     }
 
+    boolean startCenter() {
+        LightColumn center = column(CENTER);
+        PendingLight saved = center.saved();
+        this.savedApplied = saved != null;
+        if (saved != null) {
+            this.block.apply(CENTER, saved);
+            if (this.sky != null) {
+                this.sky.apply(CENTER, saved);
+            }
+        }
+
+        return center.takeReconciliation();
+    }
+
+    static int neighborChunk(int chunkIndex, Direction direction) {
+        return chunkIndex + direction.getStepX() * CHUNKS + direction.getStepZ();
+    }
+
+    int faceCell(int chunkIndex, int section, Direction direction, int along, int localY) {
+        int x = direction.getStepX() == 0 ? along : direction.getStepX() > 0 ? 15 : 0;
+        int z = direction.getStepZ() == 0 ? along : direction.getStepZ() > 0 ? 15 : 0;
+        return (chunkIndex * this.sections + section) << SLOT_SHIFT | localY << 8 | z << 4 | x;
+    }
+
     void unload() {
         LightColumn center = columnIfPresent(CENTER);
         if (center != null) {
@@ -279,8 +306,14 @@ final class LightWindow {
         }
 
         for (int index = 0; index < this.initialized.size(); index++) {
-            int chunkIndex = this.initialized.getInt(index);
-            this.queued.retain(chunkX(chunkIndex), chunkZ(chunkIndex), false);
+            PendingLight queued = column(this.initialized.getInt(index)).queued();
+            if (queued != null) {
+                queued.retain(false);
+            }
+        }
+
+        if (this.savedApplied) {
+            column(CENTER).forgetSaved();
         }
     }
 
@@ -288,6 +321,7 @@ final class LightWindow {
         Arrays.fill(this.chunks, null);
         Arrays.fill(this.blockSections, null);
         this.initialized.clear();
+        this.savedApplied = false;
         this.block.close();
         if (this.sky != null) {
             this.sky.close();
@@ -594,15 +628,15 @@ final class LightWindow {
         private void remove(int slot) {
             int chunkIndex = slot / LightWindow.this.sections;
             int section = slot % LightWindow.this.sections;
-            QueuedSections.Column column = LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
-            byte[] queuedData = column == null ? null : column.get(this.type, section);
-            boolean retained = column != null && column.retained();
+            PendingLight queued = column(chunkIndex).queued();
+            byte[] queuedData = queued == null ? null : queued.get(this.type, section);
+            boolean retained = queued != null && queued.retained();
             if (retained && queuedData == null) {
-                column.put(this.type, section, this.current[slot]);
+                queued.put(this.type, section, this.current[slot]);
             }
 
             if (!retained && queuedData != null) {
-                this.dequeued.add(new Dequeued(slot, queuedData));
+                this.dequeued.add(new Dequeued(queued, slot, queuedData));
             }
 
             this.removing[slot] = false;
@@ -612,23 +646,36 @@ final class LightWindow {
         }
 
         private void applyQueued(int chunkIndex) {
-            QueuedSections.Column column = LightWindow.this.chunks[chunkIndex] == null ? null : LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
-            if (column == null)
-                return;
+            LightColumn column = columnIfPresent(chunkIndex);
+            PendingLight queued = column == null ? null : column.queued();
+            if (queued != null) {
+                apply(chunkIndex, queued);
+            }
+        }
 
+        private void apply(int chunkIndex, PendingLight light) {
             for (int section = 0; section < LightWindow.this.sections; section++) {
                 int slot = chunkIndex * LightWindow.this.sections + section;
-                byte[] queuedData = data(slot) == null ? null : column.get(this.type, section);
-                if (queuedData != null) {
-                    this.dequeued.add(new Dequeued(slot, queuedData));
+                byte[] lightData = data(slot) == null ? null : light.get(this.type, section);
+                if (lightData != null) {
+                    this.dequeued.add(new Dequeued(light, slot, lightData));
                 }
 
-                if (queuedData != null && queuedData != this.current[slot]) {
-                    this.current[slot] = queuedData;
+                if (lightData != null && lightData != this.current[slot]) {
+                    this.current[slot] = lightData;
                     this.owned[slot] = false;
                     markChanged(slot);
                 }
             }
+        }
+
+        boolean differs(int chunkIndex, int neighborIndex, int section) {
+            byte[] data = data(chunkIndex * LightWindow.this.sections + section);
+            byte[] neighbor = data(neighborIndex * LightWindow.this.sections + section);
+            if (data == null && neighbor == null)
+                return false;
+
+            return data != neighbor || !Nibbles.shared(data);
         }
 
         private void updateStored(int chunkIndex, int section, boolean stored) {
@@ -647,12 +694,26 @@ final class LightWindow {
                 return;
             }
 
-            byte[] queuedData = LightWindow.this.queued.get(this.type, chunkX(chunkIndex), chunkZ(chunkIndex), section);
-            byte[] data = queuedData != null ? queuedData : freshData(chunkIndex, section);
+            LightColumn column = column(chunkIndex);
+            byte[] startData = startData(column.queued(), section);
+            byte[] kept = startData == null ? startData(column.saved(), section) : startData;
+            byte[] data = kept != null ? kept : freshData(chunkIndex, section);
             this.current[slot] = data;
-            this.owned[slot] = queuedData == null && !Nibbles.shared(data);
+            this.owned[slot] = kept == null && !Nibbles.shared(data);
             markChanged(slot);
             notifyLater(chunkIndex, section);
+        }
+
+        private byte @Nullable [] startData(@Nullable PendingLight light, int section) {
+            return light == null ? null : light.get(this.type, section);
+        }
+
+        private void notifyLater(int chunkIndex, int section) {
+            int index = chunkIndex * this.notifiedSections + section + 1;
+            if (!this.notified[index]) {
+                this.notified[index] = true;
+                this.notifications.add(index);
+            }
         }
 
         private byte[] freshData(int chunkIndex, int section) {
@@ -670,14 +731,6 @@ final class LightWindow {
             }
 
             return enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
-        }
-
-        private void notifyLater(int chunkIndex, int section) {
-            int index = chunkIndex * this.notifiedSections + section + 1;
-            if (!this.notified[index]) {
-                this.notified[index] = true;
-                this.notifications.add(index);
-            }
         }
 
         private byte @Nullable [] data(int slot) {
@@ -698,11 +751,7 @@ final class LightWindow {
             }
 
             for (Dequeued entry : this.dequeued) {
-                int chunkIndex = entry.slot() / LightWindow.this.sections;
-                QueuedSections.Column column = LightWindow.this.queued.column(chunkX(chunkIndex), chunkZ(chunkIndex));
-                if (column != null) {
-                    column.remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
-                }
+                entry.light().remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
             }
 
             for (int index = 0; index < this.notifications.size(); index++) {
@@ -715,6 +764,6 @@ final class LightWindow {
 
     }
 
-    private record Dequeued(int slot, byte[] data) {
+    private record Dequeued(PendingLight light, int slot, byte[] data) {
     }
 }

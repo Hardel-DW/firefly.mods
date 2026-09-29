@@ -1,9 +1,10 @@
 package fr.hardel.firefly.server;
 
 import fr.hardel.firefly.storage.ChunkLight;
+import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.LightSections;
 import fr.hardel.firefly.storage.Nibbles;
-import fr.hardel.firefly.storage.QueuedSections;
+import fr.hardel.firefly.storage.PendingLight;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.ChunkPos;
@@ -19,14 +20,12 @@ public final class LightReader implements LayerLightEventListener {
 
     private final FireflyLightEngine engine;
     private final LightChunkGetter source;
-    private final QueuedSections queued;
     private final LightLayer layer;
     private final int minSection;
 
-    LightReader(FireflyLightEngine engine, LightChunkGetter source, QueuedSections queued, LightLayer layer, int minSection) {
+    LightReader(FireflyLightEngine engine, LightChunkGetter source, LightLayer layer, int minSection) {
         this.engine = engine;
         this.source = source;
-        this.queued = queued;
         this.layer = layer;
         this.minSection = minSection;
     }
@@ -41,8 +40,13 @@ public final class LightReader implements LayerLightEventListener {
         if (index < 0 || index >= this.engine.getLightSectionCount())
             return null;
 
-        byte[] queuedData = this.queued.get(this.layer, pos.x(), pos.z(), index);
-        byte[] data = queuedData != null || chunk == null ? queuedData : sections(chunk).get(index);
+        if (chunk == null)
+            return null;
+
+        LightColumn column = ((ChunkLight) chunk).firefly$light();
+        byte[] queued = get(column.queued(), index);
+        byte[] saved = queued == null ? get(column.saved(), index) : queued;
+        byte[] data = saved != null ? saved : column.sections(this.layer).get(index);
         if (data == null)
             return null;
 
@@ -91,6 +95,10 @@ public final class LightReader implements LayerLightEventListener {
     @Override
     public void propagateLightSources(ChunkPos pos) {
         this.engine.propagateLightSources(pos);
+    }
+
+    private byte @Nullable [] get(@Nullable PendingLight light, int index) {
+        return light == null ? null : light.get(this.layer, index);
     }
 
     private LightSections sections(LightChunk chunk) {

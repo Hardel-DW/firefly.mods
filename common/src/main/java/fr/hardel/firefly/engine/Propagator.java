@@ -14,10 +14,12 @@ import org.jspecify.annotations.Nullable;
 abstract class Propagator {
     protected static final Direction[] DIRECTIONS = Direction.values();
     private static final Direction[] OPPOSITES = Arrays.stream(DIRECTIONS).map(Direction::getOpposite).toArray(Direction[]::new);
+    private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
 
     protected final LightWindow window;
     protected final LightWindow.Layer layer;
     private final IntOpenHashSet checks = new IntOpenHashSet();
+    private final IntOpenHashSet rechecks = new IntOpenHashSet();
     private final LightQueue increases = new LightQueue();
     private final LightQueue decreases = new LightQueue();
 
@@ -30,13 +32,28 @@ abstract class Propagator {
         this.checks.add(cell);
     }
 
+    void reconcileFaces(int chunkIndex) {
+        for (Direction direction : HORIZONTALS) {
+            int neighbor = LightWindow.neighborChunk(chunkIndex, direction);
+            if (this.layer.enabled(neighbor)) {
+                reconcileFace(chunkIndex, neighbor, direction);
+            }
+        }
+    }
+
     void run() {
         IntIterator cells = this.checks.iterator();
         while (cells.hasNext()) {
             checkNode(cells.nextInt());
         }
 
+        IntIterator rechecked = this.rechecks.iterator();
+        while (rechecked.hasNext()) {
+            recheckNode(rechecked.nextInt());
+        }
+
         this.checks.clear();
+        this.rechecks.clear();
         while (!this.decreases.isEmpty()) {
             propagateDecrease(this.decreases.next());
         }
@@ -65,6 +82,8 @@ abstract class Propagator {
 
     protected abstract void checkNode(int cell);
 
+    protected abstract void recheckNode(int cell);
+
     protected abstract int decreasedEmission(int cell);
 
     protected abstract int emptySectionsBelow(int cell);
@@ -81,6 +100,30 @@ abstract class Propagator {
 
     protected static boolean emptyShape(BlockState state) {
         return !state.canOcclude() || !state.useShapeForLightOcclusion();
+    }
+
+    private void reconcileFace(int chunkIndex, int neighbor, Direction direction) {
+        for (int section = 0; section < this.window.sections(); section++) {
+            if (this.layer.differs(chunkIndex, neighbor, section)) {
+                reconcileSection(chunkIndex, section, direction);
+            }
+        }
+    }
+
+    private void reconcileSection(int chunkIndex, int section, Direction direction) {
+        for (int localY = 0; localY < 16; localY++) {
+            for (int along = 0; along < 16; along++) {
+                int cell = this.window.faceCell(chunkIndex, section, direction, along, localY);
+                recheck(cell);
+                recheck(this.window.neighbor(cell, direction));
+            }
+        }
+    }
+
+    private void recheck(int cell) {
+        if (this.layer.stored(cell)) {
+            this.rechecks.add(cell);
+        }
     }
 
     private void propagateIncrease(int from, long entry, int fromLevel) {

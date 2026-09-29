@@ -1,6 +1,7 @@
 package fr.hardel.firefly.storage;
 
 import java.util.Arrays;
+import net.minecraft.world.level.chunk.DataLayer;
 
 public final class Nibbles {
     public static final int BYTES = 2048;
@@ -23,6 +24,13 @@ public final class Nibbles {
         int shift = (index & 1) << 2;
         int position = index >> 1;
         data[position] = (byte) (data[position] & ~(15 << shift) | (level & 15) << shift);
+    }
+
+    public static byte[] of(DataLayer data) {
+        if (data.isEmpty())
+            return ZERO;
+
+        return data.isDefinitelyHomogenous() && data.get(0, 0, 0) == 15 ? FULL : data.getData();
     }
 
     public static boolean shared(byte[] data) {

@@ -7,6 +7,9 @@ public final class LightColumn {
     private final LightSections block;
     private final LightSections sky;
     private volatile @Nullable Boolean initialization;
+    private volatile @Nullable PendingLight queued;
+    private volatile @Nullable PendingLight saved;
+    private volatile boolean reconciling;
 
     public LightColumn(int sections) {
         this.block = new LightSections(sections);
@@ -25,5 +28,41 @@ public final class LightColumn {
         Boolean lighted = this.initialization;
         this.initialization = null;
         return lighted;
+    }
+
+    public @Nullable PendingLight queued() {
+        return this.queued;
+    }
+
+    public synchronized PendingLight queuedOrCreate() {
+        PendingLight light = this.queued;
+        if (light != null)
+            return light;
+
+        PendingLight created = new PendingLight(this.block.count());
+        this.queued = created;
+        return created;
+    }
+
+    public @Nullable PendingLight saved() {
+        return this.saved;
+    }
+
+    public void save(PendingLight light) {
+        this.saved = light;
+    }
+
+    public void forgetSaved() {
+        this.saved = null;
+    }
+
+    public void requestReconciliation() {
+        this.reconciling = true;
+    }
+
+    public boolean takeReconciliation() {
+        boolean requested = this.reconciling;
+        this.reconciling = false;
+        return requested;
     }
 }

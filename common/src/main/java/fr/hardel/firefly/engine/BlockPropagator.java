@@ -41,6 +41,11 @@ final class BlockPropagator extends Propagator {
     }
 
     @Override
+    protected void recheckNode(int cell) {
+        checkNode(cell);
+    }
+
+    @Override
     protected int decreasedEmission(int cell) {
         return emission(cell, this.window.state(cell));
     }

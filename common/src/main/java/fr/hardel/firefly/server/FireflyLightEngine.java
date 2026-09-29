@@ -9,7 +9,7 @@ import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
-import fr.hardel.firefly.storage.QueuedSections;
+import fr.hardel.firefly.storage.PendingLight;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -27,16 +27,15 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.lighting.LayerLightEventListener;
 import org.jspecify.annotations.Nullable;
 
 public final class FireflyLightEngine extends ThreadedLevelLightEngine {
-    private static final int FULL = 15;
     private static final Consumer<ChunkWork> REFRESH_STORAGE = _ -> {};
 
     private final LightChunkGetter source;
     private final LevelLight light;
-    private final QueuedSections queued;
     private final int minSection;
     private final LightReader block;
     private final @Nullable LightReader sky;
@@ -52,10 +51,9 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         this.source = source;
         this.executor = executor;
         this.minSection = getMinLightSection();
-        this.queued = new QueuedSections(getLightSectionCount());
-        this.light = new LevelLight(source, emission, this.queued, hasSkyLight, this.minSection, getLightSectionCount());
-        this.block = new LightReader(this, source, this.queued, LightLayer.BLOCK, this.minSection);
-        this.sky = hasSkyLight ? new LightReader(this, source, this.queued, LightLayer.SKY, this.minSection) : null;
+        this.light = new LevelLight(source, emission, hasSkyLight, this.minSection, getLightSectionCount());
+        this.block = new LightReader(this, source, LightLayer.BLOCK, this.minSection);
+        this.sky = hasSkyLight ? new LightReader(this, source, LightLayer.SKY, this.minSection) : null;
         Firefly.LOGGER.info("Firefly lights {} sections with sky {}, emission {} and executor {}", getLightSectionCount(), hasSkyLight,
             emission.getClass().getSimpleName(), executor.getClass().getSimpleName());
     }
@@ -83,12 +81,28 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public void queueSectionData(LightLayer layer, SectionPos pos, @Nullable DataLayer data) {
-        this.queued.queue(layer, pos.x(), pos.z(), pos.y() - this.minSection, data == null ? null : sectionData(data));
+        LightColumn column = loadedColumn(pos.x(), pos.z());
+        if (column == null)
+            return;
+
+        column.queuedOrCreate().put(layer, pos.y() - this.minSection, data == null ? null : Nibbles.of(data));
     }
 
     @Override
     public void retainData(ChunkPos pos, boolean retain) {
-        this.queued.retain(pos.x(), pos.z(), retain);
+        LightColumn column = loadedColumn(pos.x(), pos.z());
+        if (column != null) {
+            column.queuedOrCreate().retain(retain);
+        }
+    }
+
+    public void readFromDisk(ChunkAccess chunk, @Nullable PendingLight saved) {
+        LightColumn column = ((ChunkLight) chunk).firefly$light();
+        if (saved != null && chunk.getPersistedStatus().isOrAfter(ChunkStatus.LIGHT) && chunk.isLightCorrect()) {
+            column.save(saved);
+        }
+
+        column.requestReconciliation();
     }
 
     @Override
@@ -126,10 +140,9 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         return this.writing.finished(chunkX, chunkZ);
     }
 
-    @Override
-    protected void updateChunkStatus(ChunkPos pos) {
-        this.queued.clear(pos.x(), pos.z());
-        request(pos.x(), pos.z(), ChunkWork::unload);
+    public void unload(ChunkAccess chunk) {
+        ChunkPos pos = chunk.getPos();
+        request(pos.x(), pos.z(), work -> work.unload(chunk));
     }
 
     @Override
@@ -165,6 +178,11 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
         LightColumn column = ((ChunkLight) chunk).firefly$light();
         return column.sections(LightLayer.BLOCK).enabled() && (this.sky == null || column.sections(LightLayer.SKY).enabled());
+    }
+
+    private @Nullable LightColumn loadedColumn(int chunkX, int chunkZ) {
+        LightChunk chunk = this.source.getChunkForLighting(chunkX, chunkZ);
+        return chunk == null ? null : ((ChunkLight) chunk).firefly$light();
     }
 
     private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
@@ -230,12 +248,5 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), exception);
             return exception;
         }
-    }
-
-    private static byte[] sectionData(DataLayer data) {
-        if (data.isEmpty())
-            return Nibbles.ZERO;
-
-        return data.isDefinitelyHomogenous() && data.get(0, 0, 0) == FULL ? Nibbles.FULL : data.getData();
     }
 }

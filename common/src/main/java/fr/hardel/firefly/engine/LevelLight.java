@@ -1,6 +1,5 @@
 package fr.hardel.firefly.engine;
 
-import fr.hardel.firefly.storage.QueuedSections;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -10,17 +9,15 @@ import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 public final class LevelLight {
     private final LightChunkGetter source;
     private final LightEmission emission;
-    private final QueuedSections queued;
     private final ChunkSkyLightSources emptySources;
     private final boolean hasSky;
     private final int minSection;
     private final int sections;
     private final Deque<Workspace> idle = new ArrayDeque<>();
 
-    public LevelLight(LightChunkGetter source, LightEmission emission, QueuedSections queued, boolean hasSky, int minSection, int sections) {
+    public LevelLight(LightChunkGetter source, LightEmission emission, boolean hasSky, int minSection, int sections) {
         this.source = source;
         this.emission = emission;
-        this.queued = queued;
         this.emptySources = new ChunkSkyLightSources(source.getLevel());
         this.hasSky = hasSky;
         this.minSection = minSection;
@@ -44,7 +41,7 @@ public final class LevelLight {
                 return this.idle.pop();
         }
 
-        LightWindow window = new LightWindow(this.source, this.emission, this.queued, this.emptySources, this.hasSky, this.minSection, this.sections);
+        LightWindow window = new LightWindow(this.source, this.emission, this.emptySources, this.hasSky, this.minSection, this.sections);
         List<Propagator> propagators = window.sky == null ? List.of(new BlockPropagator(window)) : List.of(new BlockPropagator(window), new SkyPropagator(window, window.sky));
         return new Workspace(window, propagators);
     }
