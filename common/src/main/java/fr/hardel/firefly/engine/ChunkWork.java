@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
+import org.jspecify.annotations.Nullable;
 
 public final class ChunkWork {
     private static final int ENABLE = 0;
@@ -20,6 +21,7 @@ public final class ChunkWork {
     private final LongOpenHashSet checks = new LongOpenHashSet();
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
+    private LightBatch batch;
     private boolean propagating;
     private boolean unloading;
 
@@ -34,6 +36,14 @@ public final class ChunkWork {
 
     public int chunkZ() {
         return this.chunkZ;
+    }
+
+    public LightBatch batch() {
+        return this.batch;
+    }
+
+    public void batch(LightBatch batch) {
+        this.batch = batch;
     }
 
     public int radius() {
@@ -66,9 +76,6 @@ public final class ChunkWork {
         this.completions.add(() -> future.complete(value));
     }
 
-    public void fail(Throwable failure) {
-        this.futures.forEach(future -> future.completeExceptionally(failure));
-    }
 
     void run(LightWindow window, List<Propagator> propagators) {
         window.refreshStorage(this.unloading);
@@ -96,7 +103,12 @@ public final class ChunkWork {
         propagators.forEach(Propagator::run);
     }
 
-    void complete() {
+    public void complete(@Nullable Throwable failure) {
+        if (failure != null) {
+            this.futures.forEach(future -> future.completeExceptionally(failure));
+            return;
+        }
+
         this.completions.forEach(Runnable::run);
     }
 

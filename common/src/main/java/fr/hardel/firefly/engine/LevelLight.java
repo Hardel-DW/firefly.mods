@@ -31,13 +31,11 @@ public final class LevelLight {
         Workspace workspace = take();
         workspace.window.open(work.chunkX(), work.chunkZ());
         work.run(workspace.window, workspace.propagators);
-        workspace.window.publish();
+        workspace.window.publish(work.batch());
         workspace.window.close();
         synchronized (this.idle) {
             this.idle.push(workspace);
         }
-
-        work.complete();
     }
 
     private Workspace take() {

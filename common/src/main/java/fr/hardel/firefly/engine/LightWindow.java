@@ -269,10 +269,10 @@ final class LightWindow {
         }
     }
 
-    void publish() {
-        this.block.publish();
+    void publish(LightBatch batch) {
+        this.block.publish(batch);
         if (this.sky != null) {
-            this.sky.publish();
+            this.sky.publish(batch);
         }
 
         for (int index = 0; index < this.initialized.size(); index++) {
@@ -682,7 +682,7 @@ final class LightWindow {
             }
         }
 
-        private void publish() {
+        private void publish(LightBatch batch) {
             for (int index = 0; index < this.changes.size(); index++) {
                 int slot = this.changes.getInt(index);
                 column(slot / LightWindow.this.sections).sections(this.type).publish(slot % LightWindow.this.sections, this.current[slot]);
@@ -700,7 +700,7 @@ final class LightWindow {
                 int notification = this.notifications.getInt(index);
                 int chunkIndex = notification / this.notifiedSections;
                 int section = LightWindow.this.minSection + notification % this.notifiedSections - 1;
-                LightWindow.this.source.onLightUpdate(this.type, SectionPos.of(chunkX(chunkIndex), section, chunkZ(chunkIndex)));
+                batch.changed(this.type, SectionPos.asLong(chunkX(chunkIndex), section, chunkZ(chunkIndex)));
             }
         }
 

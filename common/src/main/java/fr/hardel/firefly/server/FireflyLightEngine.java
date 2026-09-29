@@ -3,6 +3,7 @@ package fr.hardel.firefly.server;
 import fr.hardel.firefly.Firefly;
 import fr.hardel.firefly.engine.ChunkWork;
 import fr.hardel.firefly.engine.LevelLight;
+import fr.hardel.firefly.engine.LightBatch;
 import fr.hardel.firefly.engine.LightEmission;
 import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.storage.ChunkLight;
@@ -190,7 +191,12 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     private void submitPending() {
         synchronized (this.submitting) {
-            takeUnsubmitted().forEach(work -> this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work)));
+            List<ChunkWork> works = takeUnsubmitted();
+            LightBatch batch = new LightBatch(works.size());
+            works.forEach(work -> {
+                work.batch(batch);
+                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work));
+            });
         }
     }
 
@@ -203,13 +209,19 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     }
 
     private void run(ChunkWork work) {
+        RuntimeException failure = lightOrFailure(work);
+        work.batch().finish(this.source);
+        work.complete(failure);
+        this.outstanding.decrementAndGet();
+    }
+
+    private @Nullable RuntimeException lightOrFailure(ChunkWork work) {
         try {
             this.light.run(work);
+            return null;
         } catch (RuntimeException exception) {
             Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), exception);
-            work.fail(exception);
-        } finally {
-            this.outstanding.decrementAndGet();
+            return exception;
         }
     }
 

@@ -54,6 +54,16 @@ class FireflyLightEngineTest {
     }
 
     @Test
+    void changesOfOneTickInNeighborChunksNeverShowAHalfLitState() {
+        List<String> flickers = LongStream.of(3019, 3078, 3116, 3174)
+            .mapToObj(seed -> new LightOracle.Worlds(seed, 1, LightOracle.WORLDS.heights(), TestWorld.PALETTE))
+            .flatMap(worlds -> LightOracle.differences(new Parallel(LightEmission.VANILLA), worlds).stream())
+            .toList();
+
+        assertEquals(List.of(), flickers);
+    }
+
+    @Test
     void fireflyFillsTheSkySourcesVanillaFills() {
         List<String> differences = LightOracle.WORLDS.heights().stream().flatMap(height -> LongStream.range(0, 2).boxed().flatMap(seed -> {
             TestWorld world = new TestWorld(seed, height.minY(), height.height(), TestWorld.PALETTE);
