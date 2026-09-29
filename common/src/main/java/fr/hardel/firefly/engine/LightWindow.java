@@ -30,7 +30,7 @@ final class LightWindow {
     private static final int SLOT_SHIFT = 12;
     private static final int LOCAL_MASK = (1 << SLOT_SHIFT) - 1;
     private static final BlockState ABSENT = Blocks.BEDROCK.defaultBlockState();
-    private static final BlockState OUTSIDE = Blocks.AIR.defaultBlockState();
+    private static final BlockState AIR = Blocks.AIR.defaultBlockState();
     private static final int[] EDGE_MASKS = Arrays.stream(Direction.values()).mapToInt(LightWindow::edgeMask).toArray();
     private static final int[] EDGES = Arrays.stream(Direction.values()).mapToInt(LightWindow::edge).toArray();
     private static final int[] STEPS = Arrays.stream(Direction.values()).mapToInt(LightWindow::step).toArray();
@@ -48,7 +48,7 @@ final class LightWindow {
     private final int minBlockY;
     private final @Nullable LightChunk[] chunks = new LightChunk[CHUNKS * CHUNKS];
     private final @Nullable LevelChunkSection[] blockSections;
-    private final BlockState[] missingStates;
+    private final @Nullable BlockState[] uniformStates;
     private final int[] chunkOfSlot;
     private final int[] sectionOfSlot;
     private final int[] crossings;
@@ -74,7 +74,7 @@ final class LightWindow {
         this.nonEmpty = new boolean[CHUNKS * CHUNKS * sections];
         this.nearNonEmpty = new boolean[CHUNKS * CHUNKS * sections];
         this.blockSections = new LevelChunkSection[CHUNKS * CHUNKS * sections];
-        this.missingStates = new BlockState[CHUNKS * CHUNKS * sections];
+        this.uniformStates = new BlockState[CHUNKS * CHUNKS * sections];
         this.chunkOfSlot = new int[CHUNKS * CHUNKS * sections];
         this.sectionOfSlot = new int[CHUNKS * CHUNKS * sections];
         for (int slot = 0; slot < this.chunkOfSlot.length; slot++) {
@@ -196,8 +196,8 @@ final class LightWindow {
     }
 
     BlockState state(int cell) {
-        LevelChunkSection section = this.blockSections[slot(cell)];
-        return section == null ? this.missingStates[slot(cell)] : section.getStates().get(localIndex(cell));
+        BlockState uniform = this.uniformStates[slot(cell)];
+        return uniform != null ? uniform : this.blockSections[slot(cell)].getStates().get(localIndex(cell));
     }
 
     int emission(int cell, BlockState state) {
@@ -306,7 +306,7 @@ final class LightWindow {
         }
 
         Arrays.fill(this.sourceEdges, UNFOUND);
-        Arrays.fill(this.sourceTops, OUTSIDE);
+        Arrays.fill(this.sourceTops, AIR);
         int found = 0;
         for (int section = highestSection; section >= 0 && found < COLUMNS; section--) {
             found += findSourceEdges(chunk.getSection(section), SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(section)));
@@ -319,7 +319,7 @@ final class LightWindow {
 
     private int findSourceEdges(LevelChunkSection section, int sectionBottomY) {
         if (section.hasOnlyAir()) {
-            Arrays.fill(this.sourceTops, OUTSIDE);
+            Arrays.fill(this.sourceTops, AIR);
             return 0;
         }
 
@@ -359,8 +359,15 @@ final class LightWindow {
             int slot = chunkIndex * this.sections + section;
             boolean inside = chunkSections != null && section >= 1 && section <= chunkSections.length;
             this.blockSections[slot] = inside ? chunkSections[section - 1] : null;
-            this.missingStates[slot] = chunkSections == null ? ABSENT : OUTSIDE;
+            this.uniformStates[slot] = uniformState(chunkSections == null, inside ? chunkSections[section - 1] : null);
         }
+    }
+
+    private static @Nullable BlockState uniformState(boolean absent, @Nullable LevelChunkSection section) {
+        if (absent)
+            return ABSENT;
+
+        return section == null || section.hasOnlyAir() ? AIR : null;
     }
 
     private static int edgeMask(Direction direction) {
