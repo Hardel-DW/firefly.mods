@@ -480,24 +480,13 @@ final class LightWindow {
         return this.chunkZ - RADIUS + chunkIndex % CHUNKS;
     }
 
-    private static int below(int local) {
-        return local == 0 ? -1 : 0;
-    }
-
-    private static int above(int local) {
-        return local == 15 ? 1 : 0;
-    }
-
     final class Layer {
         private final LightLayer type;
         private final byte[][] current;
         private final boolean[] owned;
         private final boolean[] removing;
         private final boolean[] changed;
-        private final int notifiedSections = LightWindow.this.sections + 2;
-        private final boolean[] notified = new boolean[CHUNKS * CHUNKS * this.notifiedSections];
         private final IntArrayList changes = new IntArrayList();
-        private final IntArrayList notifications = new IntArrayList();
         private final List<Dequeued> dequeued = new ArrayList<>();
 
         private Layer(LightLayer type) {
@@ -525,13 +514,8 @@ final class LightWindow {
                 this.changed[slot] = false;
             }
 
-            for (int index = 0; index < this.notifications.size(); index++) {
-                this.notified[this.notifications.getInt(index)] = false;
-            }
-
             Arrays.fill(this.current, null);
             this.changes.clear();
-            this.notifications.clear();
             this.dequeued.clear();
         }
 
@@ -553,22 +537,6 @@ final class LightWindow {
         }
 
         void set(int cell, int level) {
-            write(cell, level);
-            int x = localX(cell);
-            int y = localY(cell);
-            int z = localZ(cell);
-            int chunkIndex = chunkIndex(cell);
-            int section = sectionIndex(cell);
-            for (int dx = below(x); dx <= above(x); dx++) {
-                for (int dz = below(z); dz <= above(z); dz++) {
-                    for (int dy = below(y); dy <= above(y); dy++) {
-                        notifyLater(chunkIndex + dx * CHUNKS + dz, section + dy);
-                    }
-                }
-            }
-        }
-
-        void write(int cell, int level) {
             int slot = slot(cell);
             byte[] data = data(slot);
             if (!this.owned[slot]) {
@@ -701,19 +669,10 @@ final class LightWindow {
             this.current[slot] = data;
             this.owned[slot] = kept == null && !Nibbles.shared(data);
             markChanged(slot);
-            notifyLater(chunkIndex, section);
         }
 
         private byte @Nullable [] startData(@Nullable PendingLight light, int section) {
             return light == null ? null : light.get(this.type, section);
-        }
-
-        private void notifyLater(int chunkIndex, int section) {
-            int index = chunkIndex * this.notifiedSections + section + 1;
-            if (!this.notified[index]) {
-                this.notified[index] = true;
-                this.notifications.add(index);
-            }
         }
 
         private byte[] freshData(int chunkIndex, int section) {
@@ -747,18 +706,14 @@ final class LightWindow {
         private void publish(LightBatch batch) {
             for (int index = 0; index < this.changes.size(); index++) {
                 int slot = this.changes.getInt(index);
-                column(slot / LightWindow.this.sections).sections(this.type).publish(slot % LightWindow.this.sections, this.current[slot]);
+                int chunkIndex = slot / LightWindow.this.sections;
+                int section = slot % LightWindow.this.sections;
+                column(chunkIndex).sections(this.type).publish(section, this.current[slot]);
+                batch.changed(this.type, SectionPos.asLong(chunkX(chunkIndex), LightWindow.this.minSection + section, chunkZ(chunkIndex)));
             }
 
             for (Dequeued entry : this.dequeued) {
                 entry.light().remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
-            }
-
-            for (int index = 0; index < this.notifications.size(); index++) {
-                int notification = this.notifications.getInt(index);
-                int chunkIndex = notification / this.notifiedSections;
-                int section = LightWindow.this.minSection + notification % this.notifiedSections - 1;
-                batch.changed(this.type, SectionPos.asLong(chunkX(chunkIndex), section, chunkZ(chunkIndex)));
             }
         }
 

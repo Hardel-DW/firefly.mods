@@ -112,6 +112,24 @@ class FireflyLightEngineTest {
         assertEquals(Blocks.GLOWSTONE.defaultBlockState().getLightEmission() - 1, engine.getLayerListener(LightLayer.BLOCK).getLightValue(lit));
     }
 
+    @Test
+    void onlyTheSectionsWhoseLightChangesAreNotified() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        BlockPos glowstone = new BlockPos(CENTER * 16 + 8, 31, CENTER * 16 + 8);
+        BlockPos.betweenClosed(CENTER * 16, 16, CENTER * 16, CENTER * 16 + 15, 47, CENTER * 16 + 15).forEach(pos ->
+            world.setUnseen(new TestWorld.Edit(pos.immutable(), (pos.getY() < 32 ? Blocks.AIR : Blocks.STONE).defaultBlockState())));
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, false);
+        world.light(engine, held);
+        LightLog log = new LightLog(engine, TestWorld.SIZE);
+        world.watch(log);
+
+        world.set(new TestWorld.Edit(glowstone, Blocks.GLOWSTONE.defaultBlockState()));
+        held.settle(engine);
+
+        assertEquals(List.of(), log.notifiedUnchanged());
+    }
+
     private static Stream<String> sourceDifferences(ProtoChunk chunk) {
         ChunkSkyLightSources vanilla = new ChunkSkyLightSources(chunk);
         vanilla.fillFrom(chunk);

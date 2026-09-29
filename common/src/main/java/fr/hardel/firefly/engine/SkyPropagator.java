@@ -256,7 +256,7 @@ final class SkyPropagator extends Propagator {
         for (int y = top; y >= Math.max(sectionMinY, lowestSourceY); y--) {
             cell -= COLUMN_STEP;
             if (!filled) {
-                this.layer.write(cell, SOURCE);
+                this.layer.set(cell, SOURCE);
             }
 
             if (y == lowestSourceY || y < neighborLowestSourceY) {

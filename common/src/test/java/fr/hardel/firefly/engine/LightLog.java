@@ -37,6 +37,10 @@ final class LightLog {
         this.seen.computeIfAbsent(watched, _ -> new ArrayList<>()).add(read(watched));
     }
 
+    synchronized List<String> notifiedUnchanged() {
+        return this.seen.keySet().stream().filter(watched -> Arrays.equals(this.stable.get(watched), read(watched))).map(Watched::toString).sorted().toList();
+    }
+
     synchronized List<String> settle(String moment) {
         List<String> flickering = new ArrayList<>();
         List<String> silent = new ArrayList<>();
