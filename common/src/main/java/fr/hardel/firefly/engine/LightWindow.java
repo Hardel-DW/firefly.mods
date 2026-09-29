@@ -19,6 +19,8 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine;
+import net.minecraft.world.phys.shapes.Shapes;
 import org.jspecify.annotations.Nullable;
 
 final class LightWindow {
@@ -32,6 +34,8 @@ final class LightWindow {
     private static final int[] EDGE_MASKS = Arrays.stream(Direction.values()).mapToInt(LightWindow::edgeMask).toArray();
     private static final int[] EDGES = Arrays.stream(Direction.values()).mapToInt(LightWindow::edge).toArray();
     private static final int[] STEPS = Arrays.stream(Direction.values()).mapToInt(LightWindow::step).toArray();
+    private static final int COLUMNS = 256;
+    private static final int UNFOUND = Integer.MIN_VALUE;
 
     final Layer block;
     final @Nullable Layer sky;
@@ -48,6 +52,8 @@ final class LightWindow {
     private final int[] chunkOfSlot;
     private final int[] sectionOfSlot;
     private final int[] crossings;
+    private final int[] sourceEdges = new int[COLUMNS];
+    private final BlockState[] sourceTops = new BlockState[COLUMNS];
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
     private final boolean[] nonEmpty;
     private final boolean[] nearNonEmpty;
@@ -292,6 +298,62 @@ final class LightWindow {
         }
     }
 
+    private void fillSources(ChunkAccess chunk, ChunkSkyLightSources sources) {
+        int highestSection = chunk.getHighestFilledSectionIndex();
+        if (highestSection < 0) {
+            sources.fill(sources.minY);
+            return;
+        }
+
+        Arrays.fill(this.sourceEdges, UNFOUND);
+        Arrays.fill(this.sourceTops, OUTSIDE);
+        int found = 0;
+        for (int section = highestSection; section >= 0 && found < COLUMNS; section--) {
+            found += findSourceEdges(chunk.getSection(section), SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(section)));
+        }
+
+        for (int column = 0; column < COLUMNS; column++) {
+            sources.set(column, Math.max(this.sourceEdges[column] == UNFOUND ? sources.minY : this.sourceEdges[column], sources.minY));
+        }
+    }
+
+    private int findSourceEdges(LevelChunkSection section, int sectionBottomY) {
+        if (section.hasOnlyAir()) {
+            Arrays.fill(this.sourceTops, OUTSIDE);
+            return 0;
+        }
+
+        int found = 0;
+        for (int index = COLUMNS * 16 - 1; index >= 0; index--) {
+            int column = index & COLUMNS - 1;
+            if (this.sourceEdges[column] == UNFOUND) {
+                found += findSourceEdge(column, section.getStates().get(index), sectionBottomY + (index >> 8) + 1);
+            }
+        }
+
+        return found;
+    }
+
+    private int findSourceEdge(int column, BlockState bottom, int edgeY) {
+        BlockState top = this.sourceTops[column];
+        this.sourceTops[column] = bottom;
+        if (!edgeOccluded(top, bottom))
+            return 0;
+
+        this.sourceEdges[column] = edgeY;
+        return 1;
+    }
+
+    private static boolean edgeOccluded(BlockState top, BlockState bottom) {
+        if (bottom.getLightDampening() != 0)
+            return true;
+
+        if (Propagator.emptyShape(top) && Propagator.emptyShape(bottom))
+            return false;
+
+        return Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(top, Direction.DOWN), LightEngine.getOcclusionShape(bottom, Direction.UP));
+    }
+
     private void openBlocks(int chunkIndex, LevelChunkSection @Nullable [] chunkSections) {
         for (int section = 0; section < this.sections; section++) {
             int slot = chunkIndex * this.sections + section;
@@ -351,7 +413,7 @@ final class LightWindow {
         ChunkAccess chunk = (ChunkAccess) this.chunks[chunkIndex];
         ChunkSkyLightSources sources = chunk.getSkyLightSources();
         synchronized (sources) {
-            chunk.initializeLightSources();
+            fillSources(chunk, sources);
         }
 
         propagators.forEach(propagator -> propagator.setLightEnabled(chunkIndex, lighted));

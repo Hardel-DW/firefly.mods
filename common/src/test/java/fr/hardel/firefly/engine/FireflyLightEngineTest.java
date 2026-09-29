@@ -18,11 +18,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LightChunkGetter;
+import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.dimension.DimensionType;
+import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +51,18 @@ class FireflyLightEngineTest {
     @Test
     void theLightDoesNotDependOnTheOrderTheChunksAreInitializedAndLit() {
         LongStream.rangeClosed(1, 3).forEach(order -> assertEquals(List.of(), LightOracle.differences(new Shuffled(order), false), "order %d".formatted(order)));
+    }
+
+    @Test
+    void fireflyFillsTheSkySourcesVanillaFills() {
+        List<String> differences = LightOracle.WORLDS.heights().stream().flatMap(height -> LongStream.range(0, 2).boxed().flatMap(seed -> {
+            TestWorld world = new TestWorld(seed, height.minY(), height.height(), TestWorld.PALETTE);
+            Parallel parallel = new Parallel(LightEmission.VANILLA);
+            parallel.light(world, parallel.create(world, true));
+            return world.chunks().stream().flatMap(FireflyLightEngineTest::sourceDifferences);
+        })).toList();
+
+        assertEquals(List.of(), differences);
     }
 
     @Test
@@ -90,6 +105,15 @@ class FireflyLightEngineTest {
         held.runUntil(waited::isDone);
 
         assertEquals(Blocks.GLOWSTONE.defaultBlockState().getLightEmission() - 1, engine.getLayerListener(LightLayer.BLOCK).getLightValue(lit));
+    }
+
+    private static Stream<String> sourceDifferences(ProtoChunk chunk) {
+        ChunkSkyLightSources vanilla = new ChunkSkyLightSources(chunk);
+        vanilla.fillFrom(chunk);
+        return IntStream.range(0, 256)
+            .filter(column -> vanilla.getLowestSourceY(column & 15, column >> 4) != chunk.getSkyLightSources().getLowestSourceY(column & 15, column >> 4))
+            .mapToObj(column -> "%s column %d: %d instead of %d".formatted(chunk.getPos(), column, chunk.getSkyLightSources().getLowestSourceY(column & 15, column >> 4),
+                vanilla.getLowestSourceY(column & 15, column >> 4)));
     }
 
     private static List<Integer> distinctBytes(byte[] data) {
