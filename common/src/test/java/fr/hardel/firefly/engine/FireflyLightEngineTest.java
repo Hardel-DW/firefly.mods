@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
@@ -42,6 +43,11 @@ class FireflyLightEngineTest {
         assertEquals(List.of(), LightOracle.differences(new Parallel(LightEmission.VANILLA), false));
         assertEquals(List.of(0), distinctBytes(Nibbles.ZERO));
         assertEquals(List.of(-1), distinctBytes(Nibbles.FULL));
+    }
+
+    @Test
+    void theLightDoesNotDependOnTheOrderTheChunksAreInitializedAndLit() {
+        LongStream.rangeClosed(1, 3).forEach(order -> assertEquals(List.of(), LightOracle.differences(new Shuffled(order), false), "order %d".formatted(order)));
     }
 
     @Test

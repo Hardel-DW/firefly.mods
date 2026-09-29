@@ -59,7 +59,7 @@ abstract class Propagator {
         this.layer.finish();
     }
 
-    abstract void setLightEnabled(boolean enabled);
+    abstract void setLightEnabled(int chunkIndex, boolean enabled);
 
     abstract void propagateLightSources();
 

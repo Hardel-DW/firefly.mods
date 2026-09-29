@@ -46,6 +46,9 @@ final class LightWindow {
     private final @Nullable LightChunk[] chunks = new LightChunk[CHUNKS * CHUNKS];
     private final LevelChunkSection[][] blocks = new LevelChunkSection[CHUNKS * CHUNKS][];
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+    private final boolean[] nonEmpty;
+    private final boolean[] nearNonEmpty;
+    private final IntArrayList initialized = new IntArrayList();
     private int chunkX;
     private int chunkZ;
     private int originX;
@@ -59,6 +62,8 @@ final class LightWindow {
         this.minSection = minSection;
         this.sections = sections;
         this.minBlockY = SectionPos.sectionToBlockCoord(minSection);
+        this.nonEmpty = new boolean[CHUNKS * CHUNKS * sections];
+        this.nearNonEmpty = new boolean[CHUNKS * CHUNKS * sections];
         this.block = new Layer(LightLayer.BLOCK);
         this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
     }
@@ -197,37 +202,32 @@ final class LightWindow {
         return sources == null ? absent : sources.getLowestSourceY(SectionPos.sectionRelative(blockX), SectionPos.sectionRelative(blockZ));
     }
 
-    void sectionStatus(int section, boolean empty) {
-        LightColumn center = column(CENTER);
-        if (center.nonEmpty(section) == !empty)
-            return;
+    void refreshStorage(boolean centerLeaving) {
+        for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
+            readNonEmpty(chunkIndex, centerLeaving && chunkIndex == CENTER);
+        }
 
-        center.setNonEmpty(section, !empty);
-        updateStored(CENTER, section);
+        for (int slot = 0; slot < this.nonEmpty.length; slot++) {
+            int section = slot % this.sections;
+            this.nearNonEmpty[slot] = this.nonEmpty[slot] || section > 0 && this.nonEmpty[slot - 1] || section + 1 < this.sections && this.nonEmpty[slot + 1];
+        }
+
         for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    boolean around = dx != 0 || dy != 0 || dz != 0;
-                    int target = section + dy;
-                    if (around && target >= 0 && target < this.sections) {
-                        updateStored(CENTER + dx * CHUNKS + dz, target);
-                    }
-                }
+            for (int dz = -1; dz <= 1; dz++) {
+                refreshColumn(CENTER + dx * CHUNKS + dz);
             }
         }
     }
 
-    void initialize() {
-        ChunkAccess center = (ChunkAccess) center();
-        ChunkSkyLightSources sources = center.getSkyLightSources();
-        synchronized (sources) {
-            center.initializeLightSources();
-        }
-
-        LevelChunkSection[] sections = this.blocks[CENTER];
-        for (int index = 0; index < sections.length; index++) {
-            if (!sections[index].hasOnlyAir()) {
-                sectionStatus(index + 1, false);
+    void initializePending(List<Propagator> propagators) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int chunkIndex = CENTER + dx * CHUNKS + dz;
+                LightColumn column = columnIfPresent(chunkIndex);
+                Boolean lighted = column == null ? null : column.takeInitialization();
+                if (lighted != null) {
+                    initialize(chunkIndex, lighted, propagators);
+                }
             }
         }
     }
@@ -235,15 +235,8 @@ final class LightWindow {
     void unload() {
         LightColumn center = columnIfPresent(CENTER);
         if (center != null) {
-            clearCenter(center);
-        }
-
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                for (int section = 0; section < this.sections; section++) {
-                    updateStored(CENTER + dx * CHUNKS + dz, section);
-                }
-            }
+            center.sections(LightLayer.BLOCK).setEnabled(false);
+            center.sections(LightLayer.SKY).setEnabled(false);
         }
     }
 
@@ -252,33 +245,49 @@ final class LightWindow {
         if (this.sky != null) {
             this.sky.publish();
         }
+
+        for (int index = 0; index < this.initialized.size(); index++) {
+            int chunkIndex = this.initialized.getInt(index);
+            this.queued.retain(chunkX(chunkIndex), chunkZ(chunkIndex), false);
+        }
     }
 
     void close() {
         Arrays.fill(this.chunks, null);
         Arrays.fill(this.blocks, null);
+        this.initialized.clear();
         this.block.close();
         if (this.sky != null) {
             this.sky.close();
         }
     }
 
-    private void updateStored(int chunkIndex, int section) {
-        if (this.chunks[chunkIndex] == null)
-            return;
-
-        boolean stored = nonEmptyAround(chunkIndex, section);
-        this.block.updateStored(chunkIndex, section, stored);
-        if (this.sky != null) {
-            this.sky.updateStored(chunkIndex, section, stored);
+    private void readNonEmpty(int chunkIndex, boolean leaving) {
+        LevelChunkSection[] blockSections = this.blocks[chunkIndex];
+        for (int section = 0; section < this.sections; section++) {
+            int blockSection = section - 1;
+            boolean present = blockSections != null && !leaving && blockSection >= 0 && blockSection < blockSections.length;
+            this.nonEmpty[chunkIndex * this.sections + section] = present && !blockSections[blockSection].hasOnlyAir();
         }
     }
 
-    private boolean nonEmptyAround(int chunkIndex, int section) {
+    private void refreshColumn(int chunkIndex) {
+        if (this.chunks[chunkIndex] == null)
+            return;
+
+        for (int section = this.sections - 1; section >= 0; section--) {
+            boolean stored = nearNonEmptyAround(chunkIndex, section);
+            this.block.updateStored(chunkIndex, section, stored);
+            if (this.sky != null) {
+                this.sky.updateStored(chunkIndex, section, stored);
+            }
+        }
+    }
+
+    private boolean nearNonEmptyAround(int chunkIndex, int section) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
-                LightColumn column = columnIfPresent(chunkIndex + dx * CHUNKS + dz);
-                if (column != null && nonEmptyAt(column, section)) {
+                if (this.nearNonEmpty[(chunkIndex + dx * CHUNKS + dz) * this.sections + section]) {
                     return true;
                 }
             }
@@ -287,17 +296,15 @@ final class LightWindow {
         return false;
     }
 
-    private boolean nonEmptyAt(LightColumn column, int section) {
-        return column.nonEmpty(section) || section > 0 && column.nonEmpty(section - 1) || section + 1 < this.sections && column.nonEmpty(section + 1);
-    }
-
-    private void clearCenter(LightColumn center) {
-        for (int section = 0; section < this.sections; section++) {
-            center.setNonEmpty(section, false);
+    private void initialize(int chunkIndex, boolean lighted, List<Propagator> propagators) {
+        ChunkAccess chunk = (ChunkAccess) this.chunks[chunkIndex];
+        ChunkSkyLightSources sources = chunk.getSkyLightSources();
+        synchronized (sources) {
+            chunk.initializeLightSources();
         }
 
-        center.sections(LightLayer.BLOCK).setEnabled(false);
-        center.sections(LightLayer.SKY).setEnabled(false);
+        propagators.forEach(propagator -> propagator.setLightEnabled(chunkIndex, lighted));
+        this.initialized.add(chunkIndex);
     }
 
     private LightColumn column(int chunkIndex) {

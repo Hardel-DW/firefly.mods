@@ -9,8 +9,8 @@ final class BlockPropagator extends Propagator {
     }
 
     @Override
-    void setLightEnabled(boolean enabled) {
-        this.layer.setEnabled(LightWindow.CENTER, enabled);
+    void setLightEnabled(int chunkIndex, boolean enabled) {
+        this.layer.setEnabled(chunkIndex, enabled);
     }
 
     @Override

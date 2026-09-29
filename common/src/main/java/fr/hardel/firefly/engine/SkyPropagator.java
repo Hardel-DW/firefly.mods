@@ -14,16 +14,16 @@ final class SkyPropagator extends Propagator {
     }
 
     @Override
-    void setLightEnabled(boolean enabled) {
-        this.layer.setEnabled(LightWindow.CENTER, enabled);
+    void setLightEnabled(int chunkIndex, boolean enabled) {
+        this.layer.setEnabled(chunkIndex, enabled);
         if (!enabled)
             return;
 
-        int highestNonSourceY = this.window.sourcesOrEmpty(LightWindow.CENTER).getHighestLowestSourceY() - 1;
+        int highestNonSourceY = this.window.sourcesOrEmpty(chunkIndex).getHighestLowestSourceY() - 1;
         int bottom = Math.max(0, SectionPos.blockToSectionCoord(highestNonSourceY) + 1 - this.window.minSection());
-        for (int section = this.layer.topSection(LightWindow.CENTER); section >= bottom; section--) {
-            if (this.layer.stored(LightWindow.CENTER, section) && this.layer.empty(LightWindow.CENTER, section)) {
-                this.layer.fill(LightWindow.CENTER, section, Nibbles.FULL);
+        for (int section = this.layer.topSection(chunkIndex); section >= bottom; section--) {
+            if (this.layer.stored(chunkIndex, section) && this.layer.empty(chunkIndex, section)) {
+                this.layer.fill(chunkIndex, section, Nibbles.FULL);
             }
         }
     }

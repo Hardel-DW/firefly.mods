@@ -9,19 +9,14 @@ import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
 
 public final class ChunkWork {
-    private static final int SECTION_FILLED = 0;
-    private static final int SECTION_EMPTY = 1;
-    private static final int ENABLE = 2;
-    private static final int DISABLE = 3;
-    private static final int PROPAGATE = 4;
-    private static final int INITIALIZE = 5;
-    private static final int KIND_BITS = 3;
+    private static final int ENABLE = 0;
+    private static final int DISABLE = 1;
+    private static final int PROPAGATE = 2;
     private static final int WRITE_RADIUS = LightWindow.RADIUS - 1;
 
     private final int chunkX;
     private final int chunkZ;
     private final IntArrayList operations = new IntArrayList();
-    private final IntArrayList lastOperations = new IntArrayList();
     private final LongOpenHashSet checks = new LongOpenHashSet();
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
@@ -49,17 +44,8 @@ public final class ChunkWork {
         this.checks.add(pos.asLong());
     }
 
-    public void sectionStatus(int section, boolean empty) {
-        this.operations.add(section << KIND_BITS | (empty ? SECTION_EMPTY : SECTION_FILLED));
-    }
-
     public void lightEnabled(boolean enabled) {
         this.operations.add(enabled ? ENABLE : DISABLE);
-    }
-
-    public void initialize(boolean lighted) {
-        this.operations.add(INITIALIZE);
-        this.lastOperations.add(lighted ? ENABLE : DISABLE);
     }
 
     public void propagateLightSources() {
@@ -85,13 +71,14 @@ public final class ChunkWork {
     }
 
     void run(LightWindow window, List<Propagator> propagators) {
+        window.refreshStorage(this.unloading);
+        window.initializePending(propagators);
         if (!window.hasCenter()) {
-            unloadIfAsked(window);
             propagators.forEach(Propagator::run);
             return;
         }
 
-        apply(this.operations, window, propagators);
+        apply(propagators);
         LongIterator positions = this.checks.iterator();
         while (positions.hasNext()) {
             long pos = positions.nextLong();
@@ -102,30 +89,22 @@ public final class ChunkWork {
             }
         }
 
-        unloadIfAsked(window);
+        if (this.unloading) {
+            window.unload();
+        }
+
         propagators.forEach(Propagator::run);
-        apply(this.lastOperations, window, propagators);
     }
 
     void complete() {
         this.completions.forEach(Runnable::run);
     }
 
-    private void unloadIfAsked(LightWindow window) {
-        if (this.unloading) {
-            window.unload();
-        }
-    }
-
-    private static void apply(IntArrayList operations, LightWindow window, List<Propagator> propagators) {
-        for (int index = 0; index < operations.size(); index++) {
-            int operation = operations.getInt(index);
-            switch (operation & (1 << KIND_BITS) - 1) {
-                case SECTION_FILLED -> window.sectionStatus(operation >> KIND_BITS, false);
-                case SECTION_EMPTY -> window.sectionStatus(operation >> KIND_BITS, true);
-                case ENABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(true));
-                case DISABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(false));
-                case INITIALIZE -> window.initialize();
+    private void apply(List<Propagator> propagators) {
+        for (int index = 0; index < this.operations.size(); index++) {
+            switch (this.operations.getInt(index)) {
+                case ENABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(LightWindow.CENTER, true));
+                case DISABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(LightWindow.CENTER, false));
                 default -> propagators.forEach(Propagator::propagateLightSources);
             }
         }

@@ -47,7 +47,7 @@ record Parallel(LightEmission emission) implements LightOracle.Engine<FireflyLig
             .forEach(CompletableFuture::join);
     }
 
-    private static boolean neighborsInitialized(ChunkPos pos, boolean[] initialized) {
+    static boolean neighborsInitialized(ChunkPos pos, boolean[] initialized) {
         return ChunkPos.rangeClosed(pos, 1)
             .filter(neighbor -> neighbor.x() >= 0 && neighbor.z() >= 0 && neighbor.x() < TestWorld.SIZE && neighbor.z() < TestWorld.SIZE)
             .allMatch(neighbor -> initialized[neighbor.x() * TestWorld.SIZE + neighbor.z()]);

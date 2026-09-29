@@ -31,6 +31,7 @@ import org.jspecify.annotations.Nullable;
 
 public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private static final int FULL = 15;
+    private static final Consumer<ChunkWork> REFRESH_STORAGE = _ -> {};
 
     private final LightChunkGetter source;
     private final LevelLight light;
@@ -65,7 +66,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public void updateSectionStatus(SectionPos pos, boolean sectionEmpty) {
-        update(pos.x(), pos.z(), work -> work.sectionStatus(pos.y() - this.minSection, sectionEmpty));
+        update(pos.x(), pos.z(), REFRESH_STORAGE);
     }
 
     @Override
@@ -91,12 +92,13 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     @Override
     public CompletableFuture<ChunkAccess> initializeLight(ChunkAccess chunk, boolean lighted) {
         CompletableFuture<ChunkAccess> initialized = new CompletableFuture<>();
-        initialize(chunk, lighted, work -> work.completes(initialized, chunk));
+        ((ChunkLight) chunk).firefly$light().requestInitialization(lighted);
+        request(chunk.getPos().x(), chunk.getPos().z(), work -> work.completes(initialized, chunk));
         return initialized;
     }
 
     public CompletableFuture<ChunkAccess> initializeLightAhead(ChunkAccess chunk, boolean lighted) {
-        initialize(chunk, lighted, _ -> {});
+        ((ChunkLight) chunk).firefly$light().requestInitialization(lighted);
         return CompletableFuture.completedFuture(chunk);
     }
 
@@ -163,15 +165,6 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
         LightColumn column = ((ChunkLight) chunk).firefly$light();
         return column.sections(LightLayer.BLOCK).enabled() && (this.sky == null || column.sections(LightLayer.SKY).enabled());
-    }
-
-    private void initialize(ChunkAccess chunk, boolean lighted, Consumer<ChunkWork> awaiting) {
-        ChunkPos pos = chunk.getPos();
-        request(pos.x(), pos.z(), work -> {
-            work.initialize(lighted);
-            work.onComplete(() -> this.queued.retain(pos.x(), pos.z(), false));
-            awaiting.accept(work);
-        });
     }
 
     private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
