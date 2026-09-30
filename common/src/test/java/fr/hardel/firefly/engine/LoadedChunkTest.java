@@ -8,8 +8,12 @@ import fr.hardel.firefly.server.LightReader;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.PendingLight;
 import java.util.List;
+import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
@@ -17,6 +21,7 @@ import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.lighting.LevelLightEngine;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +32,10 @@ class LoadedChunkTest {
     private static final int CENTER = TestWorld.SIZE / 2;
     private static final ChunkPos LOADED = new ChunkPos(CENTER, CENTER);
     private static final BlockPos BORDER = new BlockPos(CENTER * 16, 20, CENTER * 16 + 8);
+    private static final int RELOADED_WORLDS = 6;
+    private static final int RELOADS = 8;
+    private static final int EDITS_WHILE_AWAY = 40;
+    private static final int BORDER_DEPTH = 3;
 
     @Test
     void aChunkSavedBeforeItsLightIsLitFromItsBlocks() {
@@ -44,7 +53,7 @@ class LoadedChunkTest {
         engine.lightChunk(loaded, false);
         held.settle(engine);
 
-        assertEquals(List.of(), LightOracle.read("saved before its light", lightFromZero(new TestWorld(0, -16, 64, TestWorld.PALETTE)), engine));
+        assertEquals(List.of(), LightOracle.read("saved before its light", lightFromZero(new TestWorld(0, -16, 64, TestWorld.PALETTE), true), engine));
     }
 
     @Test
@@ -68,7 +77,34 @@ class LoadedChunkTest {
 
         TestWorld reference = pocket();
         reference.set(glowstone);
-        assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(reference), engine));
+        assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(reference, true), engine));
+    }
+
+    @Test
+    void aChunkLoadedAgainBesideUnchangedNeighborsLeavesTheirLightUntouched() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+        ProtoChunk unloaded = world.unload(LOADED);
+        PendingLight saved = saved(engine, unloaded);
+        engine.unload(unloaded);
+        held.settle(engine);
+        LightLog log = new LightLog(engine, TestWorld.SIZE);
+        world.watch(log);
+
+        reload(world, engine, held, unloaded, saved);
+
+        assertEquals(List.of(), log.notifiedUnchanged());
+    }
+
+    @Test
+    void chunksLoadedAgainAfterTheirNeighborsChangedLightLikeLightFromZero() {
+        List<String> differences = LongStream.range(0, RELOADED_WORLDS).boxed()
+            .flatMap(seed -> Stream.of(true, false).flatMap(sky -> reloadedDifferences(seed, sky).stream()))
+            .toList();
+
+        assertEquals(List.of(), differences);
     }
 
     @Test
@@ -91,7 +127,53 @@ class LoadedChunkTest {
         loaded.forEach(chunk -> after.lightChunk(chunk, true));
         held.settle(after);
 
-        assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(flat()), after));
+        assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(flat(), true), after));
+    }
+
+    private static List<String> reloadedDifferences(long seed, boolean sky) {
+        TestWorld world = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
+        TestWorld reference = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, sky);
+        world.light(engine, held);
+        RandomSource random = RandomSource.create(seed);
+        for (int round = 0; round < RELOADS; round++) {
+            ProtoChunk unloaded = world.unload(new ChunkPos(1 + random.nextInt(TestWorld.SIZE - 2), 1 + random.nextInt(TestWorld.SIZE - 2)));
+            PendingLight saved = random.nextBoolean() ? saved(engine, unloaded) : null;
+            engine.unload(unloaded);
+            held.settle(engine);
+            for (int edit = 0; edit < EDITS_WHILE_AWAY; edit++) {
+                TestWorld.Edit change = besideTheBorder(random, unloaded.getPos());
+                world.set(change);
+                reference.setUnseen(change);
+            }
+
+            held.settle(engine);
+            reload(world, engine, held, unloaded, saved);
+        }
+
+        return LightOracle.read("seed %d, sky %s, reloaded".formatted(seed, sky), lightFromZero(reference, sky), engine);
+    }
+
+    private static void reload(TestWorld world, FireflyLightEngine engine, Held held, ProtoChunk unloaded, @Nullable PendingLight saved) {
+        boolean lighted = saved != null;
+        ProtoChunk loaded = world.load(unloaded, lighted ? ChunkStatus.LIGHT : ChunkStatus.INITIALIZE_LIGHT, lighted);
+        engine.readFromDisk(loaded, saved);
+        engine.initializeLightAhead(loaded, lighted);
+        engine.lightChunk(loaded, lighted);
+        held.settle(engine);
+        loaded.setPersistedStatus(ChunkStatus.LIGHT);
+        loaded.setLightEngine(engine);
+    }
+
+    private static TestWorld.Edit besideTheBorder(RandomSource random, ChunkPos away) {
+        Direction side = Direction.Plane.HORIZONTAL.getRandomDirection(random);
+        int along = random.nextInt(16);
+        int depth = random.nextInt(BORDER_DEPTH);
+        int x = side.getStepX() == 0 ? along : side.getStepX() > 0 ? 16 + depth : -1 - depth;
+        int z = side.getStepZ() == 0 ? along : side.getStepZ() > 0 ? 16 + depth : -1 - depth;
+        BlockPos pos = new BlockPos(away.getMinBlockX() + x, -16 + random.nextInt(64), away.getMinBlockZ() + z);
+        return new TestWorld.Edit(pos, TestWorld.PALETTE.get(random.nextInt(TestWorld.PALETTE.size())));
     }
 
     private static TestWorld flat() {
@@ -122,9 +204,9 @@ class LoadedChunkTest {
         PendingLight saved = new PendingLight(engine.getLightSectionCount());
         saved.retain(true);
         for (LightLayer layer : LightLayer.values()) {
-            LightReader reader = (LightReader) engine.getLayerListener(layer);
             for (int section = 0; section < engine.getLightSectionCount(); section++) {
-                DataLayer data = reader.getDataLayerData(chunk, SectionPos.of(chunk.getPos(), engine.getMinLightSection() + section));
+                SectionPos pos = SectionPos.of(chunk.getPos(), engine.getMinLightSection() + section);
+                DataLayer data = engine.getLayerListener(layer) instanceof LightReader reader ? reader.getDataLayerData(chunk, pos) : null;
                 if (data != null && !data.isEmpty()) {
                     saved.put(layer, section, Nibbles.of(data));
                 }
@@ -134,8 +216,8 @@ class LoadedChunkTest {
         return saved;
     }
 
-    private static LevelLightEngine lightFromZero(TestWorld world) {
-        LevelLightEngine vanilla = LightOracle.VANILLA.create(world, true);
+    private static LevelLightEngine lightFromZero(TestWorld world, boolean sky) {
+        LevelLightEngine vanilla = LightOracle.VANILLA.create(world, sky);
         world.light(vanilla, LightOracle.VANILLA);
         return vanilla;
     }

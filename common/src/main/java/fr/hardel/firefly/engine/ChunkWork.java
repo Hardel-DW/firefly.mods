@@ -91,11 +91,12 @@ public final class ChunkWork {
             return;
         }
 
-        if (window.startCenter()) {
+        boolean reconciling = window.startCenter();
+        apply(propagators);
+        if (reconciling) {
             propagators.forEach(propagator -> propagator.reconcileFaces(LightWindow.CENTER));
         }
 
-        apply(propagators);
         LongIterator positions = this.checks.iterator();
         while (positions.hasNext()) {
             long pos = positions.nextLong();

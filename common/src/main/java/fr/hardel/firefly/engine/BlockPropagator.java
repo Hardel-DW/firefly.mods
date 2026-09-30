@@ -51,6 +51,16 @@ final class BlockPropagator extends Propagator {
     }
 
     @Override
+    protected int sourceLevel(int cell, BlockState state) {
+        return emission(cell, state);
+    }
+
+    @Override
+    protected boolean readsThroughUnstored() {
+        return false;
+    }
+
+    @Override
     protected int emptySectionsBelow(int cell) {
         return 0;
     }

@@ -15,6 +15,8 @@ abstract class Propagator {
     protected static final Direction[] DIRECTIONS = Direction.values();
     private static final Direction[] OPPOSITES = Arrays.stream(DIRECTIONS).map(Direction::getOpposite).toArray(Direction[]::new);
     private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
+    private static final int MAX_LEVEL = 15;
+    private static final int UNKNOWN = -1;
 
     protected final LightWindow window;
     protected final LightWindow.Layer layer;
@@ -86,6 +88,10 @@ abstract class Propagator {
 
     protected abstract int decreasedEmission(int cell);
 
+    protected abstract int sourceLevel(int cell, BlockState state);
+
+    protected abstract boolean readsThroughUnstored();
+
     protected abstract int emptySectionsBelow(int cell);
 
     protected abstract void spreadBelow(int cell, Direction direction, int level, boolean increase, int emptySectionsBelow);
@@ -114,15 +120,76 @@ abstract class Propagator {
         for (int localY = 0; localY < 16; localY++) {
             for (int along = 0; along < 16; along++) {
                 int cell = this.window.faceCell(chunkIndex, section, direction, along, localY);
-                recheck(cell);
-                recheck(this.window.neighbor(cell, direction));
+                int across = this.window.neighbor(cell, direction);
+                reconcile(cell, across);
+                reconcile(across, cell);
             }
         }
     }
 
-    private void recheck(int cell) {
-        if (this.layer.stored(cell)) {
+    private void reconcile(int cell, int across) {
+        if (!this.layer.stored(cell))
+            return;
+
+        int level = this.layer.get(cell);
+        int acrossLevel = this.layer.level(across);
+        if (level == 0 && acrossLevel >= 0 && acrossLevel <= 1)
+            return;
+
+        int expected = expectedLevel(cell);
+        if (expected == UNKNOWN || expected < level) {
             this.rechecks.add(cell);
+            return;
+        }
+
+        if (expected > level) {
+            raise(cell, level);
+        }
+    }
+
+    private int expectedLevel(int cell) {
+        BlockState state = this.window.state(cell);
+        int expected = sourceLevel(cell, state);
+        if (expected == MAX_LEVEL)
+            return expected;
+
+        for (Direction direction : DIRECTIONS) {
+            expected = this.window.hasNeighbor(cell, direction) ? expectedThrough(cell, state, direction, expected) : expected;
+            if (expected == UNKNOWN)
+                return UNKNOWN;
+        }
+
+        return expected;
+    }
+
+    private int expectedThrough(int cell, BlockState state, Direction direction, int expected) {
+        int from = this.window.neighbor(cell, direction);
+        int fromLevel = this.layer.level(from);
+        if (fromLevel < 0)
+            return readsThroughUnstored() ? UNKNOWN : expected;
+
+        int level = fromLevel - opacity(state);
+        return level > expected && !occludes(this.window.state(from), state, opposite(direction)) ? level : expected;
+    }
+
+    private void raise(int cell, int level) {
+        BlockState state = this.window.state(cell);
+        int source = sourceLevel(cell, state);
+        if (source > level) {
+            increase(cell, source, LightQueue.ALL_DIRECTIONS, emptyShape(state), true);
+        }
+
+        for (Direction direction : DIRECTIONS) {
+            if (this.window.hasNeighbor(cell, direction)) {
+                pull(this.window.neighbor(cell, direction), level, direction);
+            }
+        }
+    }
+
+    private void pull(int from, int level, Direction direction) {
+        int fromLevel = this.layer.level(from);
+        if (fromLevel > level + 1) {
+            increase(from, fromLevel, LightQueue.only(opposite(direction)), emptyShape(this.window.state(from)), false);
         }
     }
 

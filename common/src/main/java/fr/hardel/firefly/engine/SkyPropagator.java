@@ -3,6 +3,7 @@ package fr.hardel.firefly.engine;
 import fr.hardel.firefly.storage.Nibbles;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 
 final class SkyPropagator extends Propagator {
@@ -47,24 +48,35 @@ final class SkyPropagator extends Propagator {
 
     @Override
     protected void checkNode(int cell) {
-        int x = this.window.blockX(cell);
-        int y = this.window.blockY(cell);
-        int z = this.window.blockZ(cell);
-        int lowestSourceY = this.layer.enabled(this.window.chunkIndex(cell)) ? this.window.lowestSourceY(x, z, Integer.MAX_VALUE) : Integer.MAX_VALUE;
+        int lowestSourceY = lowestSourceY(cell);
         if (lowestSourceY != Integer.MAX_VALUE) {
             removeSourcesBelow(cell, lowestSourceY);
             addSourcesAbove(cell, lowestSourceY);
         }
 
-        recheckNode(cell, y, lowestSourceY);
+        recheckNode(cell, this.window.blockY(cell), lowestSourceY);
     }
 
     @Override
     protected void recheckNode(int cell) {
-        int lowestSourceY = this.layer.enabled(this.window.chunkIndex(cell))
-            ? this.window.lowestSourceY(this.window.blockX(cell), this.window.blockZ(cell), Integer.MAX_VALUE)
-            : Integer.MAX_VALUE;
-        recheckNode(cell, this.window.blockY(cell), lowestSourceY);
+        recheckNode(cell, this.window.blockY(cell), lowestSourceY(cell));
+    }
+
+    @Override
+    protected int sourceLevel(int cell, BlockState state) {
+        return this.window.blockY(cell) >= lowestSourceY(cell) ? SOURCE : 0;
+    }
+
+    @Override
+    protected boolean readsThroughUnstored() {
+        return true;
+    }
+
+    private int lowestSourceY(int cell) {
+        if (!this.layer.enabled(this.window.chunkIndex(cell)))
+            return Integer.MAX_VALUE;
+
+        return this.window.lowestSourceY(this.window.blockX(cell), this.window.blockZ(cell), Integer.MAX_VALUE);
     }
 
     private void recheckNode(int cell, int y, int lowestSourceY) {
