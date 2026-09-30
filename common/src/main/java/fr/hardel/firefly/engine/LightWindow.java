@@ -8,6 +8,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -663,16 +664,15 @@ final class LightWindow {
             }
 
             LightColumn column = column(chunkIndex);
-            byte[] startData = startData(column.queued(), section);
-            byte[] kept = startData == null ? startData(column.saved(), section) : startData;
+            PendingLight queued = column.queued();
+            PendingLight saved = column.saved();
+            byte[] queuedData = queued == null ? null : queued.get(this.type, section);
+            byte[] savedData = saved == null ? null : Objects.requireNonNullElse(saved.get(this.type, section), Nibbles.ZERO);
+            byte[] kept = queuedData != null ? queuedData : savedData;
             byte[] data = kept != null ? kept : freshData(chunkIndex, section);
             this.current[slot] = data;
             this.owned[slot] = kept == null && !Nibbles.shared(data);
             markChanged(slot);
-        }
-
-        private byte @Nullable [] startData(@Nullable PendingLight light, int section) {
-            return light == null ? null : light.get(this.type, section);
         }
 
         private byte[] freshData(int chunkIndex, int section) {

@@ -71,6 +71,36 @@ class LoadedChunkTest {
         assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(reference), engine));
     }
 
+    @Test
+    void aSectionTheSaveLeavesOutAsDarkStaysDark() {
+        TestWorld world = flat();
+        Held held = new Held();
+        FireflyLightEngine before = held.create(world, true);
+        world.light(before, held);
+        List<PendingLight> saved = world.chunks().stream().map(chunk -> saved(before, chunk)).toList();
+        List<ProtoChunk> unloaded = world.chunks().stream().map(chunk -> world.unload(chunk.getPos())).toList();
+
+        FireflyLightEngine after = held.create(world, true);
+        List<ProtoChunk> loaded = unloaded.stream().map(chunk -> world.load(chunk, ChunkStatus.FULL, true)).toList();
+        for (int index = 0; index < loaded.size(); index++) {
+            after.readFromDisk(loaded.get(index), saved.get(index));
+            loaded.get(index).setLightEngine(after);
+            after.initializeLightAhead(loaded.get(index), true);
+        }
+
+        loaded.forEach(chunk -> after.lightChunk(chunk, true));
+        held.settle(after);
+
+        assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(flat()), after));
+    }
+
+    private static TestWorld flat() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        BlockPos.betweenClosed(0, world.minBlockY(), 0, TestWorld.SIZE * 16 - 1, world.maxBlockY(), TestWorld.SIZE * 16 - 1).forEach(pos -> world.setUnseen(
+            new TestWorld.Edit(pos.immutable(), pos.getY() < 16 ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState())));
+        return world;
+    }
+
     private static TestWorld pocket() {
         TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
         BlockPos.betweenClosed(BORDER.offset(-4, -4, -4), BORDER.offset(4, 4, 4)).forEach(pos -> world.setUnseen(new TestWorld.Edit(pos.immutable(), Blocks.AIR.defaultBlockState())));
@@ -95,7 +125,7 @@ class LoadedChunkTest {
             LightReader reader = (LightReader) engine.getLayerListener(layer);
             for (int section = 0; section < engine.getLightSectionCount(); section++) {
                 DataLayer data = reader.getDataLayerData(chunk, SectionPos.of(chunk.getPos(), engine.getMinLightSection() + section));
-                if (data != null) {
+                if (data != null && !data.isEmpty()) {
                     saved.put(layer, section, Nibbles.of(data));
                 }
             }
