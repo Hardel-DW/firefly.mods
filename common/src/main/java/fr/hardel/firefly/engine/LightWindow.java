@@ -8,7 +8,6 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -667,16 +666,16 @@ final class LightWindow {
             PendingLight queued = column.queued();
             PendingLight saved = column.saved();
             byte[] queuedData = queued == null ? null : queued.get(this.type, section);
-            byte[] savedData = saved == null ? null : Objects.requireNonNullElse(saved.get(this.type, section), Nibbles.ZERO);
+            byte[] savedData = saved == null ? null : saved.get(this.type, section);
             byte[] kept = queuedData != null ? queuedData : savedData;
-            byte[] data = kept != null ? kept : freshData(chunkIndex, section);
+            byte[] data = kept != null ? kept : freshData(chunkIndex, section, saved != null);
             this.current[slot] = data;
             this.owned[slot] = kept == null && !Nibbles.shared(data);
             markChanged(slot);
         }
 
-        private byte[] freshData(int chunkIndex, int section) {
-            if (this.type == LightLayer.BLOCK)
+        private byte[] freshData(int chunkIndex, int section, boolean lighted) {
+            if (this.type == LightLayer.BLOCK || lighted && LightWindow.this.nearNonEmpty[chunkIndex * LightWindow.this.sections + section])
                 return Nibbles.ZERO;
 
             int top = topSection(chunkIndex);
@@ -689,7 +688,7 @@ final class LightWindow {
                 return Nibbles.bottomLayerRepeated(data(chunkIndex * LightWindow.this.sections + above));
             }
 
-            return enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
+            return lighted || enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
         }
 
         private byte @Nullable [] data(int slot) {

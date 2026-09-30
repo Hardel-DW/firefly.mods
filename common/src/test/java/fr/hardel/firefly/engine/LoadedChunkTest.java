@@ -8,6 +8,7 @@ import fr.hardel.firefly.server.LightReader;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.PendingLight;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
@@ -32,6 +33,9 @@ class LoadedChunkTest {
     private static final int CENTER = TestWorld.SIZE / 2;
     private static final ChunkPos LOADED = new ChunkPos(CENTER, CENTER);
     private static final BlockPos BORDER = new BlockPos(CENTER * 16, 20, CENTER * 16 + 8);
+    private static final ChunkPos ISLAND_CHUNK = new ChunkPos(CENTER + 1, CENTER);
+    private static final ChunkPos BESIDE = new ChunkPos(CENTER - 1, CENTER);
+    private static final BlockPos ISLAND = ISLAND_CHUNK.getMiddleBlockPosition(24);
     private static final int RELOADED_WORLDS = 6;
     private static final int RELOADS = 8;
     private static final int EDITS_WHILE_AWAY = 40;
@@ -130,6 +134,46 @@ class LoadedChunkTest {
         assertEquals(List.of(), LightOracle.read("loaded again", lightFromZero(flat(), true), after));
     }
 
+    @Test
+    void aSectionOnlyANeighborStoresBeforeTheChunkStartsTakesTheSkyOfItsColumn() {
+        TestWorld world = island();
+        Held held = new Held();
+        List<Saved> saves = savedWhileTheIslandWasAway(world, held);
+        FireflyLightEngine engine = held.create(world, true);
+        List<ProtoChunk> loaded = saves.stream().map(save -> save.readFromDisk(world, engine)).toList();
+        loaded.stream().filter(chunk -> !chunk.getPos().equals(LOADED)).forEach(chunk -> engine.initializeLightAhead(chunk, true));
+        engine.lightChunk(world.chunk(ISLAND), true);
+        held.settle(engine);
+
+        engine.initializeLightAhead(world.chunk(LOADED.getWorldPosition()), true);
+        loaded.forEach(chunk -> engine.lightChunk(chunk, true));
+        held.settle(engine);
+
+        assertEquals(List.of(), LightOracle.read("stored before the chunk starts", lightFromZero(island(), true), engine));
+    }
+
+    @Test
+    void aSectionOnlyANeighborStoresBeforeTheSaveIsAppliedTakesTheSkyOfItsColumn() {
+        TestWorld world = island();
+        Held held = new Held();
+        List<Saved> saves = savedWhileTheIslandWasAway(world, held);
+        FireflyLightEngine engine = held.create(world, true);
+        List<ProtoChunk> loaded = saves.stream().filter(save -> !save.chunk().getPos().equals(ISLAND_CHUNK)).map(save -> save.readFromDisk(world, engine)).toList();
+        loaded.forEach(chunk -> engine.initializeLightAhead(chunk, true));
+        engine.lightChunk(world.chunk(BESIDE.getWorldPosition()), true);
+        held.settle(engine);
+
+        ProtoChunk island = saves.stream().filter(save -> save.chunk().getPos().equals(ISLAND_CHUNK)).findFirst().orElseThrow().readFromDisk(world, engine);
+        engine.initializeLightAhead(island, true);
+        engine.lightChunk(island, true);
+        held.settle(engine);
+
+        loaded.forEach(chunk -> engine.lightChunk(chunk, true));
+        held.settle(engine);
+
+        assertEquals(List.of(), LightOracle.read("stored before the save is applied", lightFromZero(island(), true), engine));
+    }
+
     private static List<String> reloadedDifferences(long seed, boolean sky) {
         TestWorld world = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
         TestWorld reference = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
@@ -176,10 +220,31 @@ class LoadedChunkTest {
         return new TestWorld.Edit(pos, TestWorld.PALETTE.get(random.nextInt(TestWorld.PALETTE.size())));
     }
 
+    private static List<Saved> savedWhileTheIslandWasAway(TestWorld world, Held held) {
+        List<ProtoChunk> chunks = world.chunks();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+        PendingLight island = saved(engine, world.chunk(ISLAND));
+        engine.unload(world.unload(ISLAND_CHUNK));
+        held.settle(engine);
+
+        List<Saved> saves = chunks.stream().map(chunk -> new Saved(chunk, chunk.getPos().equals(ISLAND_CHUNK) ? island : saved(engine, chunk))).toList();
+        chunks.forEach(chunk -> world.unload(chunk.getPos()));
+        return saves;
+    }
+
     private static TestWorld flat() {
+        return filled(pos -> pos.getY() < 16);
+    }
+
+    private static TestWorld island() {
+        return filled(ISLAND::equals);
+    }
+
+    private static TestWorld filled(Predicate<BlockPos> stone) {
         TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
         BlockPos.betweenClosed(0, world.minBlockY(), 0, TestWorld.SIZE * 16 - 1, world.maxBlockY(), TestWorld.SIZE * 16 - 1).forEach(pos -> world.setUnseen(
-            new TestWorld.Edit(pos.immutable(), pos.getY() < 16 ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState())));
+            new TestWorld.Edit(pos.immutable(), stone.test(pos) ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState())));
         return world;
     }
 
@@ -220,5 +285,14 @@ class LoadedChunkTest {
         LevelLightEngine vanilla = LightOracle.VANILLA.create(world, sky);
         world.light(vanilla, LightOracle.VANILLA);
         return vanilla;
+    }
+
+    private record Saved(ProtoChunk chunk, PendingLight light) {
+        ProtoChunk readFromDisk(TestWorld world, FireflyLightEngine engine) {
+            ProtoChunk loaded = world.load(this.chunk, ChunkStatus.FULL, true);
+            engine.readFromDisk(loaded, this.light);
+            loaded.setLightEngine(engine);
+            return loaded;
+        }
     }
 }
