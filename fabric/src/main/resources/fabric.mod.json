@@ -8,6 +8,7 @@
 		"Hardel"
 	],
 	"license": "All-Rights-Reserved",
+	"icon": "assets/firefly/icon.png",
 	"accessWidener": "firefly.accesswidener",
 	"environment": "*",
 	"entrypoints": {

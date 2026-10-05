@@ -6,6 +6,7 @@ license = "All-Rights-Reserved"
 modId = "firefly"
 version = "${version}"
 displayName = "Firefly"
+logoFile = "assets/firefly/icon.png"
 displayTest = "IGNORE_ALL_VERSION"
 authors = "Hardel"
 description = '''
