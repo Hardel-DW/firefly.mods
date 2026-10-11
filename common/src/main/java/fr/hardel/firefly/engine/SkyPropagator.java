@@ -5,10 +5,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine.QueueEntry;
 
 final class SkyPropagator extends Propagator {
     private static final int SOURCE = 15;
-    private static final int BELOW_AND_SIDES = LightQueue.allBut(Direction.UP);
     private static final int GRID = 18;
     private static final int COLUMN_STEP = 256;
 
@@ -16,7 +16,7 @@ final class SkyPropagator extends Propagator {
     private int highestSourceY;
 
     SkyPropagator(LightWindow window, LightWindow.Layer layer) {
-        super(window, layer);
+        super(window, layer, true);
     }
 
     @Override
@@ -67,11 +67,6 @@ final class SkyPropagator extends Propagator {
         return this.window.blockY(cell) >= lowestSourceY(cell) ? SOURCE : 0;
     }
 
-    @Override
-    protected boolean readsThroughUnstored() {
-        return true;
-    }
-
     private int lowestSourceY(int cell) {
         if (!this.layer.enabled(this.window.chunkIndex(cell)))
             return Integer.MAX_VALUE;
@@ -84,17 +79,12 @@ final class SkyPropagator extends Propagator {
             return;
 
         if (y >= lowestSourceY) {
-            decrease(cell, SOURCE, BELOW_AND_SIDES);
-            increase(cell, SOURCE, BELOW_AND_SIDES, false, false);
+            decrease(cell, QueueEntry.decreaseSkipOneDirection(SOURCE, Direction.UP));
+            increase(cell, QueueEntry.increaseSkipOneDirection(SOURCE, false, Direction.UP));
             return;
         }
 
-        int oldLevel = this.layer.get(cell);
-        if (oldLevel > 0) {
-            this.layer.set(cell, 0);
-        }
-
-        decrease(cell, oldLevel > 0 ? oldLevel : 1, LightQueue.ALL_DIRECTIONS);
+        relight(cell, 0);
     }
 
     @Override
@@ -141,11 +131,11 @@ final class SkyPropagator extends Propagator {
             int target = this.window.withY(cell, section, localY);
             this.layer.set(target, increase ? level : 0);
             if (increase && level > 1) {
-                increase(target, level, LightQueue.allBut(opposite(direction)), true, false);
+                increase(target, QueueEntry.increaseSkipOneDirection(level, true, opposite(direction)));
             }
 
             if (!increase) {
-                decrease(target, level, LightQueue.allBut(opposite(direction)));
+                decrease(target, QueueEntry.decreaseSkipOneDirection(level, opposite(direction)));
             }
         }
     }
@@ -171,7 +161,7 @@ final class SkyPropagator extends Propagator {
                 return false;
 
             this.layer.set(target, 0);
-            decrease(target, SOURCE, y == lowestSourceY - 1 ? LightQueue.ALL_DIRECTIONS : BELOW_AND_SIDES);
+            decrease(target, y == lowestSourceY - 1 ? QueueEntry.decreaseAllDirections(SOURCE) : QueueEntry.decreaseSkipOneDirection(SOURCE, Direction.UP));
         }
 
         return true;
@@ -202,7 +192,7 @@ final class SkyPropagator extends Propagator {
 
             this.layer.set(target, SOURCE);
             if (y < neighborLowestSourceY || y == lowestSourceY) {
-                increase(target, SOURCE, BELOW_AND_SIDES, false, false);
+                increase(target, QueueEntry.increaseSkipOneDirection(SOURCE, false, Direction.UP));
             }
         }
 
@@ -272,17 +262,9 @@ final class SkyPropagator extends Propagator {
             }
 
             if (y == lowestSourceY || y < neighborLowestSourceY) {
-                increase(cell, SOURCE, directions(y == lowestSourceY, y < north, y < south, y < west, y < east), false, false);
+                increase(cell, QueueEntry.increaseSkySourceInDirections(y == lowestSourceY, y < north, y < south, y < west, y < east));
             }
         }
-    }
-
-    private static int directions(boolean down, boolean north, boolean south, boolean west, boolean east) {
-        int directions = down ? LightQueue.only(Direction.DOWN) : 0;
-        directions |= north ? LightQueue.only(Direction.NORTH) : 0;
-        directions |= south ? LightQueue.only(Direction.SOUTH) : 0;
-        directions |= west ? LightQueue.only(Direction.WEST) : 0;
-        return directions | (east ? LightQueue.only(Direction.EAST) : 0);
     }
 
     private static boolean crossedSectionEdge(Direction direction, int localX, int localZ) {

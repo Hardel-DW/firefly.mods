@@ -19,8 +19,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
-import net.minecraft.world.level.lighting.LightEngine;
-import net.minecraft.world.phys.shapes.Shapes;
 import org.jspecify.annotations.Nullable;
 
 final class LightWindow {
@@ -214,12 +212,8 @@ final class LightWindow {
         return this.chunks[CENTER] == chunk;
     }
 
-    LightChunk center() {
-        LightChunk center = this.chunks[CENTER];
-        if (center == null)
-            throw new IllegalStateException("A light task runs on chunk %d %d, which is not loaded".formatted(this.chunkX, this.chunkZ));
-
-        return center;
+    @Nullable LightChunk center() {
+        return this.chunks[CENTER];
     }
 
     @Nullable ChunkSkyLightSources sources(int chunkIndex) {
@@ -373,21 +367,11 @@ final class LightWindow {
     private int findSourceEdge(int column, BlockState bottom, int edgeY) {
         BlockState top = this.sourceTops[column];
         this.sourceTops[column] = bottom;
-        if (!edgeOccluded(top, bottom))
+        if (bottom.getLightDampening() == 0 && !Propagator.occludes(top, bottom, Direction.DOWN))
             return 0;
 
         this.sourceEdges[column] = edgeY;
         return 1;
-    }
-
-    private static boolean edgeOccluded(BlockState top, BlockState bottom) {
-        if (bottom.getLightDampening() != 0)
-            return true;
-
-        if (Propagator.emptyShape(top) && Propagator.emptyShape(bottom))
-            return false;
-
-        return Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(top, Direction.DOWN), LightEngine.getOcclusionShape(bottom, Direction.UP));
     }
 
     private void openBlocks(int chunkIndex, LevelChunkSection @Nullable [] chunkSections) {
@@ -525,20 +509,20 @@ final class LightWindow {
         }
 
         boolean stored(int cell) {
-            return data(slot(cell)) != null;
+            return this.current[slot(cell)] != null;
         }
 
         boolean stored(int chunkIndex, int section) {
-            return data(chunkIndex * LightWindow.this.sections + section) != null;
+            return this.current[chunkIndex * LightWindow.this.sections + section] != null;
         }
 
         int get(int cell) {
-            return Nibbles.get(data(slot(cell)), localIndex(cell));
+            return Nibbles.get(this.current[slot(cell)], localIndex(cell));
         }
 
         void set(int cell, int level) {
             int slot = slot(cell);
-            byte[] data = data(slot);
+            byte[] data = this.current[slot];
             if (!this.owned[slot]) {
                 data = data.clone();
                 this.current[slot] = data;
@@ -550,7 +534,7 @@ final class LightWindow {
         }
 
         boolean empty(int chunkIndex, int section) {
-            return data(chunkIndex * LightWindow.this.sections + section) == Nibbles.ZERO;
+            return this.current[chunkIndex * LightWindow.this.sections + section] == Nibbles.ZERO;
         }
 
         void fill(int chunkIndex, int section, byte[] data) {
@@ -624,7 +608,7 @@ final class LightWindow {
         private void apply(int chunkIndex, PendingLight light) {
             for (int section = 0; section < LightWindow.this.sections; section++) {
                 int slot = chunkIndex * LightWindow.this.sections + section;
-                byte[] lightData = data(slot) == null ? null : light.get(this.type, section);
+                byte[] lightData = this.current[slot] == null ? null : light.get(this.type, section);
                 if (lightData != null) {
                     this.dequeued.add(new Dequeued(light, slot, lightData));
                 }
@@ -638,8 +622,8 @@ final class LightWindow {
         }
 
         boolean differs(int chunkIndex, int neighborIndex, int section) {
-            byte[] data = data(chunkIndex * LightWindow.this.sections + section);
-            byte[] neighbor = data(neighborIndex * LightWindow.this.sections + section);
+            byte[] data = this.current[chunkIndex * LightWindow.this.sections + section];
+            byte[] neighbor = this.current[neighborIndex * LightWindow.this.sections + section];
             if (data == null && neighbor == null)
                 return false;
 
@@ -648,7 +632,7 @@ final class LightWindow {
 
         private void updateStored(int chunkIndex, int section, boolean stored) {
             int slot = chunkIndex * LightWindow.this.sections + section;
-            boolean present = data(slot) != null && !this.removing[slot];
+            boolean present = this.current[slot] != null && !this.removing[slot];
             if (stored == present)
                 return;
 
@@ -685,14 +669,10 @@ final class LightWindow {
                     above++;
                 }
 
-                return Nibbles.bottomLayerRepeated(data(chunkIndex * LightWindow.this.sections + above));
+                return Nibbles.bottomLayerRepeated(this.current[chunkIndex * LightWindow.this.sections + above]);
             }
 
             return lighted || enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
-        }
-
-        private byte @Nullable [] data(int slot) {
-            return this.current[slot];
         }
 
         private void markChanged(int slot) {

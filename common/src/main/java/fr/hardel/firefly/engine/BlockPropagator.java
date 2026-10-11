@@ -2,10 +2,11 @@ package fr.hardel.firefly.engine;
 
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.lighting.LightEngine.QueueEntry;
 
 final class BlockPropagator extends Propagator {
     BlockPropagator(LightWindow window) {
-        super(window, window.block);
+        super(window, window.block, false);
     }
 
     @Override
@@ -18,25 +19,14 @@ final class BlockPropagator extends Propagator {
         this.layer.setEnabled(LightWindow.CENTER, true);
         this.window.center().findBlockLightSources((pos, state) -> {
             int cell = this.window.cell(pos.getX(), pos.getY(), pos.getZ());
-            increase(cell, this.window.emission(cell, state), LightQueue.ALL_DIRECTIONS, emptyShape(state), true);
+            increase(cell, QueueEntry.increaseLightFromEmission(this.window.emission(cell, state), emptyShape(state)));
         });
     }
 
     @Override
     protected void checkNode(int cell) {
-        if (!this.layer.stored(cell))
-            return;
-
-        BlockState state = this.window.state(cell);
-        int emission = emission(cell, state);
-        int oldLevel = this.layer.get(cell);
-        if (emission < oldLevel) {
-            this.layer.set(cell, 0);
-        }
-
-        decrease(cell, emission < oldLevel ? oldLevel : 1, LightQueue.ALL_DIRECTIONS);
-        if (emission > 0) {
-            increase(cell, emission, LightQueue.ALL_DIRECTIONS, emptyShape(state), true);
+        if (this.layer.stored(cell)) {
+            relight(cell, emission(cell, this.window.state(cell)));
         }
     }
 
@@ -53,11 +43,6 @@ final class BlockPropagator extends Propagator {
     @Override
     protected int sourceLevel(int cell, BlockState state) {
         return emission(cell, state);
-    }
-
-    @Override
-    protected boolean readsThroughUnstored() {
-        return false;
     }
 
     @Override

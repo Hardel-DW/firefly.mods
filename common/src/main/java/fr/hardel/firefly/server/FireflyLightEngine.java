@@ -36,7 +36,6 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     private final LightChunkGetter source;
     private final LevelLight light;
-    private final int minSection;
     private final LightReader block;
     private final @Nullable LightReader sky;
     private final LightExecutor executor;
@@ -50,10 +49,10 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         super(source, chunkMap, hasSkyLight, consecutiveExecutor, dispatcher);
         this.source = source;
         this.executor = executor;
-        this.minSection = getMinLightSection();
-        this.light = new LevelLight(source, emission, hasSkyLight, this.minSection, getLightSectionCount());
-        this.block = new LightReader(this, source, LightLayer.BLOCK, this.minSection);
-        this.sky = hasSkyLight ? new LightReader(this, source, LightLayer.SKY, this.minSection) : null;
+        int minSection = getMinLightSection();
+        this.light = new LevelLight(source, emission, hasSkyLight, minSection, getLightSectionCount());
+        this.block = new LightReader(this, source, LightLayer.BLOCK, minSection);
+        this.sky = hasSkyLight ? new LightReader(this, source, LightLayer.SKY, minSection) : null;
         Firefly.LOGGER.info("Firefly lights {} sections with sky {}, emission {} and executor {}", getLightSectionCount(), hasSkyLight,
             emission.getClass().getSimpleName(), executor.getClass().getSimpleName());
     }
@@ -85,7 +84,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         if (column == null)
             return;
 
-        column.queuedOrCreate().put(layer, pos.y() - this.minSection, data == null ? null : Nibbles.of(data));
+        column.queuedOrCreate().put(layer, pos.y() - getMinLightSection(), data == null ? null : Nibbles.of(data));
     }
 
     @Override
@@ -214,9 +213,8 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
             LightBatch batch = new LightBatch(works.size());
             works.forEach(work -> {
-                work.batch(batch);
                 this.writing.add(work);
-                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work));
+                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work, batch));
             });
         }
     }
@@ -232,17 +230,17 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         }
     }
 
-    private void run(ChunkWork work) {
-        RuntimeException failure = lightOrFailure(work);
-        work.batch().finish(this.source);
+    private void run(ChunkWork work, LightBatch batch) {
+        RuntimeException failure = lightOrFailure(work, batch);
+        batch.finish(this.source);
         this.writing.remove(work);
         work.complete(failure);
         this.outstanding.decrementAndGet();
     }
 
-    private @Nullable RuntimeException lightOrFailure(ChunkWork work) {
+    private @Nullable RuntimeException lightOrFailure(ChunkWork work, LightBatch batch) {
         try {
-            this.light.run(work);
+            this.light.run(work, batch);
             return null;
         } catch (RuntimeException exception) {
             Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), exception);

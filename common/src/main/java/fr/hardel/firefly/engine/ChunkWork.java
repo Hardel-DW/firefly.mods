@@ -23,7 +23,6 @@ public final class ChunkWork {
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
     private final CompletableFuture<Void> finished = new CompletableFuture<>();
-    private LightBatch batch;
     private boolean propagating;
     private @Nullable LightChunk unloaded;
 
@@ -42,14 +41,6 @@ public final class ChunkWork {
 
     public CompletableFuture<Void> finished() {
         return this.finished;
-    }
-
-    public LightBatch batch() {
-        return this.batch;
-    }
-
-    public void batch(LightBatch batch) {
-        this.batch = batch;
     }
 
     public int radius() {

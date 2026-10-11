@@ -24,11 +24,11 @@ public final class LevelLight {
         this.sections = sections;
     }
 
-    public void run(ChunkWork work) {
+    public void run(ChunkWork work, LightBatch batch) {
         Workspace workspace = take();
         workspace.window.open(work.chunkX(), work.chunkZ());
         work.run(workspace.window, workspace.propagators);
-        workspace.window.publish(work.batch());
+        workspace.window.publish(batch);
         workspace.window.close();
         synchronized (this.idle) {
             this.idle.push(workspace);

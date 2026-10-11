@@ -7,6 +7,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.lighting.LightEngine;
+import net.minecraft.world.level.lighting.LightEngine.QueueEntry;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jspecify.annotations.Nullable;
@@ -15,19 +16,20 @@ abstract class Propagator {
     protected static final Direction[] DIRECTIONS = Direction.values();
     private static final Direction[] OPPOSITES = Arrays.stream(DIRECTIONS).map(Direction::getOpposite).toArray(Direction[]::new);
     private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
-    private static final int MAX_LEVEL = 15;
     private static final int UNKNOWN = -1;
 
     protected final LightWindow window;
     protected final LightWindow.Layer layer;
+    private final boolean readsThroughUnstored;
     private final IntOpenHashSet checks = new IntOpenHashSet();
     private final IntOpenHashSet rechecks = new IntOpenHashSet();
     private final LightQueue increases = new LightQueue();
     private final LightQueue decreases = new LightQueue();
 
-    protected Propagator(LightWindow window, LightWindow.Layer layer) {
+    protected Propagator(LightWindow window, LightWindow.Layer layer, boolean readsThroughUnstored) {
         this.window = window;
         this.layer = layer;
+        this.readsThroughUnstored = readsThroughUnstored;
     }
 
     void check(int cell) {
@@ -63,9 +65,9 @@ abstract class Propagator {
         while (!this.increases.isEmpty()) {
             long entry = this.increases.next();
             int cell = LightQueue.cell(entry);
-            int target = LightQueue.level(entry);
+            int target = QueueEntry.getFromLevel(entry);
             int level = this.layer.get(cell);
-            if (LightQueue.fromEmission(entry) && level < target) {
+            if (QueueEntry.isIncreaseFromEmission(entry) && level < target) {
                 this.layer.set(cell, target);
                 level = target;
             }
@@ -90,18 +92,28 @@ abstract class Propagator {
 
     protected abstract int sourceLevel(int cell, BlockState state);
 
-    protected abstract boolean readsThroughUnstored();
-
     protected abstract int emptySectionsBelow(int cell);
 
     protected abstract void spreadBelow(int cell, Direction direction, int level, boolean increase, int emptySectionsBelow);
 
-    protected void increase(int cell, int level, int directions, boolean fromEmptyShape, boolean fromEmission) {
-        this.increases.add(LightQueue.entry(cell, level, directions, fromEmptyShape, fromEmission));
+    protected void increase(int cell, long data) {
+        this.increases.add(cell, data);
     }
 
-    protected void decrease(int cell, int level, int directions) {
-        this.decreases.add(LightQueue.entry(cell, level, directions, false, false));
+    protected void decrease(int cell, long data) {
+        this.decreases.add(cell, data);
+    }
+
+    protected void relight(int cell, int emission) {
+        int oldLevel = this.layer.get(cell);
+        if (emission < oldLevel) {
+            this.layer.set(cell, 0);
+        }
+
+        decrease(cell, QueueEntry.decreaseAllDirections(emission < oldLevel ? oldLevel : 1));
+        if (emission > 0) {
+            increase(cell, QueueEntry.increaseLightFromEmission(emission, emptyShape(this.window.state(cell))));
+        }
     }
 
     protected static boolean emptyShape(BlockState state) {
@@ -150,7 +162,7 @@ abstract class Propagator {
     private int expectedLevel(int cell) {
         BlockState state = this.window.state(cell);
         int expected = sourceLevel(cell, state);
-        if (expected == MAX_LEVEL)
+        if (expected == LightEngine.MAX_LEVEL)
             return expected;
 
         for (Direction direction : DIRECTIONS) {
@@ -166,7 +178,7 @@ abstract class Propagator {
         int from = this.window.neighbor(cell, direction);
         int fromLevel = this.layer.level(from);
         if (fromLevel < 0)
-            return readsThroughUnstored() ? UNKNOWN : expected;
+            return this.readsThroughUnstored ? UNKNOWN : expected;
 
         int level = fromLevel - opacity(state);
         return level > expected && !occludes(this.window.state(from), state, opposite(direction)) ? level : expected;
@@ -176,7 +188,7 @@ abstract class Propagator {
         BlockState state = this.window.state(cell);
         int source = sourceLevel(cell, state);
         if (source > level) {
-            increase(cell, source, LightQueue.ALL_DIRECTIONS, emptyShape(state), true);
+            increase(cell, QueueEntry.increaseLightFromEmission(source, emptyShape(state)));
         }
 
         for (Direction direction : DIRECTIONS) {
@@ -189,7 +201,7 @@ abstract class Propagator {
     private void pull(int from, int level, Direction direction) {
         int fromLevel = this.layer.level(from);
         if (fromLevel > level + 1) {
-            increase(from, fromLevel, LightQueue.only(opposite(direction)), emptyShape(this.window.state(from)), false);
+            increase(from, QueueEntry.increaseOnlyOneDirection(fromLevel, emptyShape(this.window.state(from)), opposite(direction)));
         }
     }
 
@@ -197,7 +209,7 @@ abstract class Propagator {
         BlockState fromState = null;
         int emptySectionsBelow = emptySectionsBelow(from);
         for (Direction direction : DIRECTIONS) {
-            if (LightQueue.goes(entry, direction) && this.window.hasNeighbor(from, direction)) {
+            if (QueueEntry.shouldPropagateInDirection(entry, direction) && this.window.hasNeighbor(from, direction)) {
                 fromState = increaseTowards(from, entry, fromLevel, direction, fromState, emptySectionsBelow);
             }
         }
@@ -214,13 +226,13 @@ abstract class Propagator {
         if (toLevel <= oldLevel)
             return fromState;
 
-        BlockState sourceState = fromState != null ? fromState : LightQueue.fromEmptyShape(entry) ? Blocks.AIR.defaultBlockState() : this.window.state(from);
+        BlockState sourceState = fromState != null ? fromState : QueueEntry.isFromEmptyShape(entry) ? Blocks.AIR.defaultBlockState() : this.window.state(from);
         if (occludes(sourceState, toState, direction))
             return sourceState;
 
         this.layer.set(to, toLevel);
         if (toLevel > 1) {
-            increase(to, toLevel, LightQueue.allBut(opposite(direction)), emptyShape(toState), false);
+            increase(to, QueueEntry.increaseSkipOneDirection(toLevel, emptyShape(toState), opposite(direction)));
         }
 
         spreadBelow(to, direction, toLevel, true, emptySectionsBelow);
@@ -229,10 +241,10 @@ abstract class Propagator {
 
     private void propagateDecrease(long entry) {
         int from = LightQueue.cell(entry);
-        int fromLevel = LightQueue.level(entry);
+        int fromLevel = QueueEntry.getFromLevel(entry);
         int emptySectionsBelow = emptySectionsBelow(from);
         for (Direction direction : DIRECTIONS) {
-            if (LightQueue.goes(entry, direction) && this.window.hasNeighbor(from, direction)) {
+            if (QueueEntry.shouldPropagateInDirection(entry, direction) && this.window.hasNeighbor(from, direction)) {
                 decreaseTowards(from, fromLevel, direction, emptySectionsBelow);
             }
         }
@@ -245,18 +257,18 @@ abstract class Propagator {
             return;
 
         if (toLevel > fromLevel - 1) {
-            increase(to, toLevel, LightQueue.only(opposite(direction)), false, false);
+            increase(to, QueueEntry.increaseOnlyOneDirection(toLevel, false, opposite(direction)));
             return;
         }
 
         int toEmission = decreasedEmission(to);
         this.layer.set(to, 0);
         if (toEmission < toLevel) {
-            decrease(to, toLevel, LightQueue.allBut(opposite(direction)));
+            decrease(to, QueueEntry.decreaseSkipOneDirection(toLevel, opposite(direction)));
         }
 
         if (toEmission > 0) {
-            increase(to, toEmission, LightQueue.ALL_DIRECTIONS, emptyShape(this.window.state(to)), true);
+            increase(to, QueueEntry.increaseLightFromEmission(toEmission, emptyShape(this.window.state(to))));
         }
 
         spreadBelow(to, direction, toLevel, false, emptySectionsBelow);
@@ -270,7 +282,7 @@ abstract class Propagator {
         return Math.max(1, state.getLightDampening());
     }
 
-    private static boolean occludes(BlockState fromState, BlockState toState, Direction direction) {
+    static boolean occludes(BlockState fromState, BlockState toState, Direction direction) {
         if (emptyShape(fromState) && emptyShape(toState))
             return false;
 
