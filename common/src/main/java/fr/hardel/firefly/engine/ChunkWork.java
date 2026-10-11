@@ -24,6 +24,7 @@ public final class ChunkWork {
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
     private final CompletableFuture<Void> finished = new CompletableFuture<>();
     private boolean propagating;
+    private boolean reconciling;
     private @Nullable LightChunk unloaded;
 
     public ChunkWork(int chunkX, int chunkZ) {
@@ -60,6 +61,10 @@ public final class ChunkWork {
         this.operations.add(PROPAGATE);
     }
 
+    public void reconcile() {
+        this.reconciling = true;
+    }
+
     public void unload(LightChunk chunk) {
         this.unloaded = chunk;
     }
@@ -82,9 +87,9 @@ public final class ChunkWork {
             return;
         }
 
-        boolean reconciling = window.startCenter();
+        window.startCenter();
         apply(propagators);
-        if (reconciling) {
+        if (this.reconciling) {
             propagators.forEach(propagator -> propagator.reconcileFaces(LightWindow.CENTER));
         }
 

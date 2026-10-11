@@ -25,6 +25,7 @@ final class LightWindow {
     static final int RADIUS = 2;
     static final int CHUNKS = 2 * RADIUS + 1;
     static final int CENTER = RADIUS * CHUNKS + RADIUS;
+    static final int[] WRITTEN = {CENTER - CHUNKS - 1, CENTER - CHUNKS, CENTER - CHUNKS + 1, CENTER - 1, CENTER, CENTER + 1, CENTER + CHUNKS - 1, CENTER + CHUNKS, CENTER + CHUNKS + 1};
     private static final int SLOT_SHIFT = 12;
     private static final int LOCAL_MASK = (1 << SLOT_SHIFT) - 1;
     private static final BlockState ABSENT = Blocks.BEDROCK.defaultBlockState();
@@ -55,6 +56,7 @@ final class LightWindow {
     private final boolean[] nonEmpty;
     private final boolean[] nearNonEmpty;
     private final IntArrayList initialized = new IntArrayList();
+    private final @Nullable Boolean[] initializations = new Boolean[CHUNKS * CHUNKS];
     private boolean savedApplied;
     private int chunkX;
     private int chunkZ;
@@ -241,27 +243,22 @@ final class LightWindow {
             this.nearNonEmpty[slot] = this.nonEmpty[slot] || section > 0 && this.nonEmpty[slot - 1] || section + 1 < this.sections && this.nonEmpty[slot + 1];
         }
 
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                refreshColumn(CENTER + dx * CHUNKS + dz);
-            }
+        for (int chunkIndex : WRITTEN) {
+            refreshColumn(chunkIndex);
         }
     }
 
     void initializePending(List<Propagator> propagators) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                int chunkIndex = CENTER + dx * CHUNKS + dz;
-                LightColumn column = columnIfPresent(chunkIndex);
-                Boolean lighted = column == null ? null : column.takeInitialization();
-                if (lighted != null) {
-                    initialize(chunkIndex, lighted, propagators);
-                }
+        for (int chunkIndex : WRITTEN) {
+            LightColumn column = columnIfPresent(chunkIndex);
+            Boolean lighted = column == null ? null : column.initialization();
+            if (lighted != null) {
+                initialize(chunkIndex, lighted, propagators);
             }
         }
     }
 
-    boolean startCenter() {
+    void startCenter() {
         LightColumn center = column(CENTER);
         PendingLight saved = center.saved();
         this.savedApplied = saved != null;
@@ -271,8 +268,6 @@ final class LightWindow {
                 this.sky.apply(CENTER, saved);
             }
         }
-
-        return center.takeReconciliation();
     }
 
     static int neighborChunk(int chunkIndex, Direction direction) {
@@ -286,10 +281,9 @@ final class LightWindow {
     }
 
     void unload() {
-        LightColumn center = columnIfPresent(CENTER);
-        if (center != null) {
-            center.sections(LightLayer.BLOCK).setEnabled(false);
-            center.sections(LightLayer.SKY).setEnabled(false);
+        this.block.setEnabled(CENTER, false);
+        if (this.sky != null) {
+            this.sky.setEnabled(CENTER, false);
         }
     }
 
@@ -300,7 +294,9 @@ final class LightWindow {
         }
 
         for (int index = 0; index < this.initialized.size(); index++) {
-            PendingLight queued = column(this.initialized.getInt(index)).queued();
+            int chunkIndex = this.initialized.getInt(index);
+            column(chunkIndex).initialized(this.initializations[chunkIndex]);
+            PendingLight queued = column(chunkIndex).queued();
             if (queued != null) {
                 queued.retain(false);
             }
@@ -315,6 +311,7 @@ final class LightWindow {
         Arrays.fill(this.chunks, null);
         Arrays.fill(this.blockSections, null);
         this.initialized.clear();
+        Arrays.fill(this.initializations, null);
         this.savedApplied = false;
         this.block.close();
         if (this.sky != null) {
@@ -445,6 +442,7 @@ final class LightWindow {
 
         propagators.forEach(propagator -> propagator.setLightEnabled(chunkIndex, lighted));
         this.initialized.add(chunkIndex);
+        this.initializations[chunkIndex] = lighted;
     }
 
     private LightColumn column(int chunkIndex) {
@@ -465,6 +463,10 @@ final class LightWindow {
     }
 
     final class Layer {
+        private static final byte UNCHANGED = 0;
+        private static final byte ENABLED = 1;
+        private static final byte DISABLED = 2;
+
         private final LightLayer type;
         private final byte[][] current;
         private final boolean[] owned;
@@ -472,6 +474,7 @@ final class LightWindow {
         private final boolean[] changed;
         private final IntArrayList changes = new IntArrayList();
         private final List<Dequeued> dequeued = new ArrayList<>();
+        private final byte[] enabling = new byte[CHUNKS * CHUNKS];
 
         private Layer(LightLayer type) {
             int slots = CHUNKS * CHUNKS * LightWindow.this.sections;
@@ -499,6 +502,7 @@ final class LightWindow {
             }
 
             Arrays.fill(this.current, null);
+            Arrays.fill(this.enabling, UNCHANGED);
             this.changes.clear();
             this.dequeued.clear();
         }
@@ -545,12 +549,15 @@ final class LightWindow {
         }
 
         boolean enabled(int chunkIndex) {
+            if (this.enabling[chunkIndex] != UNCHANGED)
+                return this.enabling[chunkIndex] == ENABLED;
+
             LightColumn column = columnIfPresent(chunkIndex);
             return column != null && column.sections(this.type).enabled();
         }
 
         void setEnabled(int chunkIndex, boolean enabled) {
-            column(chunkIndex).sections(this.type).setEnabled(enabled);
+            this.enabling[chunkIndex] = enabled ? ENABLED : DISABLED;
         }
 
         int topSection(int chunkIndex) {
@@ -570,10 +577,8 @@ final class LightWindow {
                 }
             }
 
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    applyQueued(CENTER + dx * CHUNKS + dz);
-                }
+            for (int chunkIndex : WRITTEN) {
+                applyQueued(chunkIndex);
             }
         }
 
@@ -693,6 +698,12 @@ final class LightWindow {
 
             for (Dequeued entry : this.dequeued) {
                 entry.light().remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
+            }
+
+            for (int chunkIndex : WRITTEN) {
+                if (this.enabling[chunkIndex] != UNCHANGED) {
+                    column(chunkIndex).sections(this.type).setEnabled(this.enabling[chunkIndex] == ENABLED);
+                }
             }
         }
 

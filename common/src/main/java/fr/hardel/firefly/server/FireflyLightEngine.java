@@ -121,10 +121,15 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     public CompletableFuture<ChunkAccess> lightChunk(ChunkAccess chunk, boolean lighted) {
         ChunkPos pos = chunk.getPos();
         CompletableFuture<ChunkAccess> lit = new CompletableFuture<>();
+        boolean reconciling = ((ChunkLight) chunk).firefly$light().takeReconciliation();
         chunk.setLightCorrect(false);
         request(pos.x(), pos.z(), work -> {
             if (!lighted) {
                 work.propagateLightSources();
+            }
+
+            if (reconciling) {
+                work.reconcile();
             }
 
             work.onComplete(() -> chunk.setLightCorrect(true));

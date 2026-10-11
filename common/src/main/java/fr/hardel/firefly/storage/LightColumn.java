@@ -1,12 +1,13 @@
 package fr.hardel.firefly.storage;
 
+import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.world.level.LightLayer;
 import org.jspecify.annotations.Nullable;
 
 public final class LightColumn {
     private final LightSections block;
     private final LightSections sky;
-    private volatile @Nullable Boolean initialization;
+    private final AtomicReference<@Nullable Boolean> initialization = new AtomicReference<>();
     private volatile @Nullable PendingLight queued;
     private volatile @Nullable PendingLight saved;
     private volatile boolean reconciling;
@@ -21,13 +22,15 @@ public final class LightColumn {
     }
 
     public void requestInitialization(boolean lighted) {
-        this.initialization = lighted;
+        this.initialization.set(lighted);
     }
 
-    public @Nullable Boolean takeInitialization() {
-        Boolean lighted = this.initialization;
-        this.initialization = null;
-        return lighted;
+    public @Nullable Boolean initialization() {
+        return this.initialization.get();
+    }
+
+    public void initialized(Boolean request) {
+        this.initialization.compareAndSet(request, null);
     }
 
     public @Nullable PendingLight queued() {
