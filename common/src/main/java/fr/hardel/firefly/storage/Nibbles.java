@@ -30,7 +30,14 @@ public final class Nibbles {
         if (data.isEmpty())
             return ZERO;
 
-        return data.isDefinitelyHomogenous() && data.get(0, 0, 0) == 15 ? FULL : data.getData();
+        return data.isDefinitelyHomogenous() && data.get(0, 0, 0) == 15 ? FULL : canonical(data.getData());
+    }
+
+    public static byte[] canonical(byte[] data) {
+        if (Arrays.equals(data, ZERO))
+            return ZERO;
+
+        return Arrays.equals(data, FULL) ? FULL : data;
     }
 
     public static boolean shared(byte[] data) {

@@ -5,10 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.server.LightReader;
+import fr.hardel.firefly.storage.ChunkLight;
+import fr.hardel.firefly.storage.LightSections;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.PendingLight;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
@@ -100,6 +104,25 @@ class LoadedChunkTest {
         reload(world, engine, held, unloaded, saved);
 
         assertEquals(List.of(), log.notifiedUnchanged());
+    }
+
+    @Test
+    void aChunkLoadedAgainSharesItsUniformSections() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+        ProtoChunk unloaded = world.unload(LOADED);
+        PendingLight saved = saved(engine, unloaded);
+        engine.unload(unloaded);
+        held.settle(engine);
+
+        ProtoChunk loaded = reload(world, engine, held, unloaded, saved);
+
+        for (LightLayer layer : LightLayer.values()) {
+            LightSections sections = ((ChunkLight) loaded).firefly$light().sections(layer);
+            assertEquals(List.of(), IntStream.range(0, sections.count()).filter(section -> unshared(sections.get(section))).boxed().toList(), layer.name());
+        }
     }
 
     @Test
@@ -199,7 +222,7 @@ class LoadedChunkTest {
         return LightOracle.read("seed %d, sky %s, reloaded".formatted(seed, sky), lightFromZero(reference, sky), engine);
     }
 
-    private static void reload(TestWorld world, FireflyLightEngine engine, Held held, ProtoChunk unloaded, @Nullable PendingLight saved) {
+    private static ProtoChunk reload(TestWorld world, FireflyLightEngine engine, Held held, ProtoChunk unloaded, @Nullable PendingLight saved) {
         boolean lighted = saved != null;
         ProtoChunk loaded = world.load(unloaded, lighted ? ChunkStatus.LIGHT : ChunkStatus.INITIALIZE_LIGHT, lighted);
         engine.readFromDisk(loaded, saved);
@@ -208,6 +231,11 @@ class LoadedChunkTest {
         held.settle(engine);
         loaded.setPersistedStatus(ChunkStatus.LIGHT);
         loaded.setLightEngine(engine);
+        return loaded;
+    }
+
+    private static boolean unshared(byte @Nullable [] data) {
+        return data != null && !Nibbles.shared(data) && (Arrays.equals(data, Nibbles.ZERO) || Arrays.equals(data, Nibbles.FULL));
     }
 
     private static TestWorld.Edit besideTheBorder(RandomSource random, ChunkPos away) {
@@ -265,7 +293,7 @@ class LoadedChunkTest {
         return saved;
     }
 
-    private static PendingLight saved(FireflyLightEngine engine, ProtoChunk chunk) {
+    static PendingLight saved(FireflyLightEngine engine, ProtoChunk chunk) {
         PendingLight saved = new PendingLight(engine.getLightSectionCount());
         saved.retain(true);
         for (LightLayer layer : LightLayer.values()) {
@@ -273,7 +301,7 @@ class LoadedChunkTest {
                 SectionPos pos = SectionPos.of(chunk.getPos(), engine.getMinLightSection() + section);
                 DataLayer data = engine.getLayerListener(layer) instanceof LightReader reader ? reader.getDataLayerData(chunk, pos) : null;
                 if (data != null && !data.isEmpty()) {
-                    saved.put(layer, section, Nibbles.of(data));
+                    saved.put(layer, section, Nibbles.of(new DataLayer(data.copy().getData())));
                 }
             }
         }

@@ -693,7 +693,7 @@ final class LightWindow {
                 int slot = this.changes.getInt(index);
                 int chunkIndex = slot / LightWindow.this.sections;
                 int section = slot % LightWindow.this.sections;
-                column(chunkIndex).sections(this.type).publish(section, this.current[slot]);
+                column(chunkIndex).sections(this.type).publish(section, this.owned[slot] ? Nibbles.canonical(this.current[slot]) : this.current[slot]);
                 batch.changed(this.type, SectionPos.asLong(chunkX(chunkIndex), LightWindow.this.minSection + section, chunkZ(chunkIndex)));
             }
 
