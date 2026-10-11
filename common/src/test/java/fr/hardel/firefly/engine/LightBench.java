@@ -1,9 +1,11 @@
 package fr.hardel.firefly.engine;
 
+import com.sun.management.ThreadMXBean;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.storage.PendingLight;
+import java.lang.management.ManagementFactory;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -29,6 +31,7 @@ class LightBench {
     private static final int WARMUP_ROUNDS = 20;
     private static final int MEASURED_ROUNDS = 9;
     private static final LightExecutor INLINE = (_, _, _, task) -> task.run();
+    private static final ThreadMXBean THREADS = (ThreadMXBean) ManagementFactory.getThreadMXBean();
 
     @Test
     void timesTheLightOfTheSameWorldsOnOneThread() {
@@ -43,21 +46,24 @@ class LightBench {
         long initialization = 0;
         long lighting = 0;
         long reload = 0;
+        long allocated = 0;
         int chunks = 0;
         for (int seed = 0; seed < WORLDS; seed++) {
             TestWorld world = world(seed);
             FireflyLightEngine engine = new FireflyLightEngine(world, null, true, null, null, LightEmission.VANILLA, INLINE);
             long start = System.nanoTime();
+            long allocatedBefore = THREADS.getCurrentThreadAllocatedBytes();
             world.chunks().forEach(chunk -> engine.initializeLightAhead(chunk, false));
             long initialized = System.nanoTime();
             world.chunks().forEach(chunk -> engine.lightChunk(chunk, false));
             initialization += initialized - start;
             lighting += System.nanoTime() - initialized;
+            allocated += THREADS.getCurrentThreadAllocatedBytes() - allocatedBefore;
             reload += reload(world, engine);
             chunks += world.chunks().size();
         }
 
-        return new Round(initialization / 1000.0 / chunks, lighting / 1000.0 / chunks, reload / 1000.0 / chunks);
+        return new Round(initialization / 1000.0 / chunks, lighting / 1000.0 / chunks, reload / 1000.0 / chunks, allocated / 1024.0 / chunks);
     }
 
     private static long reload(TestWorld world, FireflyLightEngine engine) {
@@ -86,14 +92,15 @@ class LightBench {
         return world;
     }
 
-    private record Round(double initialization, double lighting, double reload) {
+    private record Round(double initialization, double lighting, double reload, double allocated) {
         double perChunk() {
             return this.initialization + this.lighting;
         }
 
         @Override
         public String toString() {
-            return "%.1f us per chunk, initialization %.1f us, light %.1f us, reload %.1f us".formatted(perChunk(), this.initialization, this.lighting, this.reload);
+            return "%.1f us per chunk, initialization %.1f us, light %.1f us, reload %.1f us, allocated %.1f KB".formatted(perChunk(), this.initialization, this.lighting,
+                this.reload, this.allocated);
         }
     }
 }
