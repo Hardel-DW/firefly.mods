@@ -3,6 +3,7 @@ package fr.hardel.firefly.engine;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.server.FireflyLightEngine;
+import fr.hardel.firefly.storage.PendingLight;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -10,6 +11,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,11 +36,13 @@ class LightBench {
         List<Round> rounds = IntStream.range(0, MEASURED_ROUNDS).mapToObj(_ -> round()).sorted(Comparator.comparingDouble(Round::perChunk)).toList();
         rounds.forEach(round -> System.out.println("light bench round: %s".formatted(round)));
         System.out.println("light bench median: %s".formatted(rounds.get(MEASURED_ROUNDS / 2)));
+        System.out.println("light bench reload median: %.1f us per chunk".formatted(rounds.stream().mapToDouble(Round::reload).sorted().toArray()[MEASURED_ROUNDS / 2]));
     }
 
     private static Round round() {
         long initialization = 0;
         long lighting = 0;
+        long reload = 0;
         int chunks = 0;
         for (int seed = 0; seed < WORLDS; seed++) {
             TestWorld world = world(seed);
@@ -48,11 +53,26 @@ class LightBench {
             world.chunks().forEach(chunk -> engine.lightChunk(chunk, false));
             initialization += initialized - start;
             lighting += System.nanoTime() - initialized;
-
+            reload += reload(world, engine);
             chunks += world.chunks().size();
         }
 
-        return new Round(initialization / 1000.0 / chunks, lighting / 1000.0 / chunks);
+        return new Round(initialization / 1000.0 / chunks, lighting / 1000.0 / chunks, reload / 1000.0 / chunks);
+    }
+
+    private static long reload(TestWorld world, FireflyLightEngine engine) {
+        List<ProtoChunk> unloaded = world.chunks();
+        List<PendingLight> saves = unloaded.stream().map(chunk -> LoadedChunkTest.saved(engine, chunk)).toList();
+        unloaded.forEach(chunk -> engine.unload(world.unload(chunk.getPos())));
+        List<ProtoChunk> loaded = IntStream.range(0, unloaded.size()).mapToObj(index -> {
+            ProtoChunk chunk = world.load(unloaded.get(index), ChunkStatus.LIGHT, true);
+            engine.readFromDisk(chunk, saves.get(index));
+            engine.initializeLightAhead(chunk, true);
+            return chunk;
+        }).toList();
+        long start = System.nanoTime();
+        loaded.forEach(chunk -> engine.lightChunk(chunk, true));
+        return System.nanoTime() - start;
     }
 
     private static TestWorld world(int seed) {
@@ -66,14 +86,14 @@ class LightBench {
         return world;
     }
 
-    private record Round(double initialization, double lighting) {
+    private record Round(double initialization, double lighting, double reload) {
         double perChunk() {
             return this.initialization + this.lighting;
         }
 
         @Override
         public String toString() {
-            return "%.1f us per chunk, initialization %.1f us, light %.1f us".formatted(perChunk(), this.initialization, this.lighting);
+            return "%.1f us per chunk, initialization %.1f us, light %.1f us, reload %.1f us".formatted(perChunk(), this.initialization, this.lighting, this.reload);
         }
     }
 }
