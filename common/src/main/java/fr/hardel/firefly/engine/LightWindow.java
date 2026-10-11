@@ -6,6 +6,7 @@ import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.PendingLight;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -474,6 +475,7 @@ final class LightWindow {
         private final boolean[] removing;
         private final boolean[] changed;
         private final IntArrayList changes = new IntArrayList();
+        private final LongArrayList published = new LongArrayList();
         private final List<Dequeued> dequeued = new ArrayList<>();
         private final byte[] enabling = new byte[CHUNKS * CHUNKS];
 
@@ -694,8 +696,11 @@ final class LightWindow {
                 int chunkIndex = slot / LightWindow.this.sections;
                 int section = slot % LightWindow.this.sections;
                 column(chunkIndex).sections(this.type).publish(section, this.owned[slot] ? Nibbles.canonical(this.current[slot]) : this.current[slot]);
-                batch.changed(this.type, SectionPos.asLong(chunkX(chunkIndex), LightWindow.this.minSection + section, chunkZ(chunkIndex)));
+                this.published.add(SectionPos.asLong(chunkX(chunkIndex), LightWindow.this.minSection + section, chunkZ(chunkIndex)));
             }
+
+            batch.changed(this.type, this.published);
+            this.published.clear();
 
             for (Dequeued entry : this.dequeued) {
                 entry.light().remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());

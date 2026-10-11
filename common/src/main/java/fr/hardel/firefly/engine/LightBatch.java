@@ -1,5 +1,6 @@
 package fr.hardel.firefly.engine;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -17,8 +18,8 @@ public final class LightBatch {
         this.remaining = new AtomicInteger(works);
     }
 
-    synchronized void changed(LightLayer layer, long section) {
-        (layer == LightLayer.BLOCK ? this.block : this.sky).add(section);
+    synchronized void changed(LightLayer layer, LongArrayList sections) {
+        (layer == LightLayer.BLOCK ? this.block : this.sky).addAll(sections);
     }
 
     public void finish(LightChunkGetter source) {
