@@ -26,8 +26,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(SerializableChunkData.class)
 public abstract class SerializableChunkDataMixin {
-    @WrapOperation(method = "copyOf", at = @At(value = "INVOKE",
-        target = "Lnet/minecraft/world/level/lighting/LayerLightEventListener;getDataLayerData(Lnet/minecraft/core/SectionPos;)Lnet/minecraft/world/level/chunk/DataLayer;"))
+    @WrapOperation(method = "copyOf", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/lighting/LayerLightEventListener;getDataLayerData(Lnet/minecraft/core/SectionPos;)Lnet/minecraft/world/level/chunk/DataLayer;"))
     private static @Nullable DataLayer firefly$readSavedChunk(LayerLightEventListener listener, SectionPos pos, Operation<DataLayer> original,
         @Local(argsOnly = true) ChunkAccess chunk) {
         if (listener instanceof LightReader reader)
@@ -36,15 +35,13 @@ public abstract class SerializableChunkDataMixin {
         return original.call(listener, pos);
     }
 
-    @WrapOperation(method = "read", at = @At(value = "INVOKE",
-        target = "Lnet/minecraft/world/level/lighting/LevelLightEngine;retainData(Lnet/minecraft/world/level/ChunkPos;Z)V"))
+    @WrapOperation(method = "read", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/lighting/LevelLightEngine;retainData(Lnet/minecraft/world/level/ChunkPos;Z)V"))
     private void firefly$keepTheSavedLight(LevelLightEngine engine, ChunkPos pos, boolean retain, Operation<Void> original,
         @Share("saved") LocalRef<PendingLight> saved) {
         saved.set(new PendingLight(engine.getLightSectionCount()));
     }
 
-    @WrapOperation(method = "read", at = @At(value = "INVOKE",
-        target = "Lnet/minecraft/world/level/lighting/LevelLightEngine;queueSectionData(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/SectionPos;Lnet/minecraft/world/level/chunk/DataLayer;)V"))
+    @WrapOperation(method = "read", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/lighting/LevelLightEngine;queueSectionData(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/SectionPos;Lnet/minecraft/world/level/chunk/DataLayer;)V"))
     private void firefly$keepTheSavedSection(LevelLightEngine engine, LightLayer layer, SectionPos pos, DataLayer data, Operation<Void> original,
         @Share("saved") LocalRef<PendingLight> saved) {
         saved.get().put(layer, pos.y() - engine.getMinLightSection(), Nibbles.of(data));
