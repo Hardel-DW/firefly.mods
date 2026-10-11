@@ -26,6 +26,10 @@ final class Held implements LightExecutor, LightOracle.Engine<FireflyLightEngine
         runUntil(this.tasks::isEmpty);
     }
 
+    int waiting() {
+        return this.tasks.size();
+    }
+
     void runUntil(BooleanSupplier done) {
         while (!done.getAsBoolean()) {
             this.tasks.removeLast().run();

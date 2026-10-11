@@ -113,6 +113,19 @@ class FireflyLightEngineTest {
     }
 
     @Test
+    void aChunkTheGenerationLightsLeavesTheChecksOfTheTickTogether() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+
+        engine.checkBlock(new BlockPos(CENTER * 16, 40, CENTER * 16));
+        engine.lightChunk(world.chunk(BlockPos.ZERO), true);
+
+        assertEquals(1, held.waiting());
+    }
+
+    @Test
     void onlyTheSectionsWhoseLightChangesAreNotified() {
         TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
         BlockPos glowstone = new BlockPos(CENTER * 16 + 8, 31, CENTER * 16 + 8);

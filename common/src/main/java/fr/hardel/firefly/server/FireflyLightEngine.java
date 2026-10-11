@@ -41,7 +41,6 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final LightExecutor executor;
     private final Long2ObjectLinkedOpenHashMap<ChunkWork> unsubmitted = new Long2ObjectLinkedOpenHashMap<>();
     private final WritingWorks writing = new WritingWorks();
-    private final Object submitting = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
 
     public FireflyLightEngine(LightChunkGetter source, ChunkMap chunkMap, boolean hasSkyLight, ConsecutiveExecutor consecutiveExecutor, ChunkTaskDispatcher dispatcher,
@@ -140,7 +139,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
-        submitPending();
+        submit(takeUnsubmitted());
         return this.writing.finished(chunkX, chunkZ);
     }
 
@@ -151,7 +150,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public void tryScheduleUpdate() {
-        submitPending();
+        submit(takeUnsubmitted());
         super.tryScheduleUpdate();
     }
 
@@ -191,7 +190,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
         update(chunkX, chunkZ, change);
-        submitPending();
+        submit(takeUnsubmitted(ChunkPos.pack(chunkX, chunkZ)));
     }
 
     private void update(int chunkX, int chunkZ, Consumer<ChunkWork> change) {
@@ -206,22 +205,17 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             ChunkWork created = new ChunkWork(chunkX, chunkZ);
             change.accept(created);
             this.unsubmitted.put(chunk, created);
+            this.writing.add(created);
             this.outstanding.incrementAndGet();
         }
     }
 
-    private void submitPending() {
-        synchronized (this.submitting) {
-            List<ChunkWork> works = takeUnsubmitted();
-            if (works.isEmpty())
-                return;
+    private void submit(List<ChunkWork> works) {
+        if (works.isEmpty())
+            return;
 
-            LightBatch batch = new LightBatch(works.size());
-            works.forEach(work -> {
-                this.writing.add(work);
-                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), () -> run(work, batch));
-            });
-        }
+        LightBatch batch = new LightBatch(works.size());
+        works.forEach(work -> this.executor.execute(this.source, work.chunkX(), work.chunkZ(), () -> run(work, batch)));
     }
 
     private List<ChunkWork> takeUnsubmitted() {
@@ -232,6 +226,13 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             List<ChunkWork> works = List.copyOf(this.unsubmitted.values());
             this.unsubmitted.clear();
             return works;
+        }
+    }
+
+    private List<ChunkWork> takeUnsubmitted(long chunk) {
+        synchronized (this.unsubmitted) {
+            ChunkWork work = this.unsubmitted.remove(chunk);
+            return work == null ? List.of() : List.of(work);
         }
     }
 
