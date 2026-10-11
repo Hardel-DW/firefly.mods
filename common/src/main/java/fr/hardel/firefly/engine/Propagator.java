@@ -166,7 +166,7 @@ abstract class Propagator {
             return expected;
 
         for (Direction direction : DIRECTIONS) {
-            expected = this.window.hasNeighbor(cell, direction) ? expectedThrough(cell, state, direction, expected) : expected;
+            expected = expectedThrough(cell, state, direction, expected);
             if (expected == UNKNOWN)
                 return UNKNOWN;
         }
@@ -192,9 +192,7 @@ abstract class Propagator {
         }
 
         for (Direction direction : DIRECTIONS) {
-            if (this.window.hasNeighbor(cell, direction)) {
-                pull(this.window.neighbor(cell, direction), level, direction);
-            }
+            pull(this.window.neighbor(cell, direction), level, direction);
         }
     }
 
@@ -209,7 +207,7 @@ abstract class Propagator {
         BlockState fromState = null;
         int emptySectionsBelow = emptySectionsBelow(from);
         for (Direction direction : DIRECTIONS) {
-            if (QueueEntry.shouldPropagateInDirection(entry, direction) && this.window.hasNeighbor(from, direction)) {
+            if (QueueEntry.shouldPropagateInDirection(entry, direction)) {
                 fromState = increaseTowards(from, entry, fromLevel, direction, fromState, emptySectionsBelow);
             }
         }
@@ -244,7 +242,7 @@ abstract class Propagator {
         int fromLevel = QueueEntry.getFromLevel(entry);
         int emptySectionsBelow = emptySectionsBelow(from);
         for (Direction direction : DIRECTIONS) {
-            if (QueueEntry.shouldPropagateInDirection(entry, direction) && this.window.hasNeighbor(from, direction)) {
+            if (QueueEntry.shouldPropagateInDirection(entry, direction)) {
                 decreaseTowards(from, fromLevel, direction, emptySectionsBelow);
             }
         }

@@ -49,8 +49,8 @@ final class LightWindow {
     private final @Nullable LightChunk[] chunks = new LightChunk[CHUNKS * CHUNKS];
     private final @Nullable LevelChunkSection[] blockSections;
     private final @Nullable BlockState[] uniformStates;
-    private final int[] chunkOfSlot;
-    private final int[] sectionOfSlot;
+    private final int sectionBits;
+    private final int sectionMask;
     private final int[] crossings;
     private final int[] sourceEdges = new int[COLUMNS];
     private final BlockState[] sourceTops = new BlockState[COLUMNS];
@@ -72,18 +72,14 @@ final class LightWindow {
         this.minSection = minSection;
         this.sections = sections;
         this.minBlockY = SectionPos.sectionToBlockCoord(minSection);
-        this.nonEmpty = new boolean[CHUNKS * CHUNKS * sections];
-        this.nearNonEmpty = new boolean[CHUNKS * CHUNKS * sections];
-        this.blockSections = new LevelChunkSection[CHUNKS * CHUNKS * sections];
-        this.uniformStates = new BlockState[CHUNKS * CHUNKS * sections];
-        this.chunkOfSlot = new int[CHUNKS * CHUNKS * sections];
-        this.sectionOfSlot = new int[CHUNKS * CHUNKS * sections];
-        for (int slot = 0; slot < this.chunkOfSlot.length; slot++) {
-            this.chunkOfSlot[slot] = slot / sections;
-            this.sectionOfSlot[slot] = slot % sections;
-        }
-
-        this.crossings = Arrays.stream(Direction.values()).mapToInt(direction -> crossing(direction, sections)).toArray();
+        this.sectionBits = Integer.SIZE - Integer.numberOfLeadingZeros(sections + 1);
+        this.sectionMask = (1 << this.sectionBits) - 1;
+        this.nonEmpty = new boolean[CHUNKS * CHUNKS << this.sectionBits];
+        this.nearNonEmpty = new boolean[CHUNKS * CHUNKS << this.sectionBits];
+        this.blockSections = new LevelChunkSection[CHUNKS * CHUNKS << this.sectionBits];
+        this.uniformStates = new BlockState[CHUNKS * CHUNKS << this.sectionBits];
+        Arrays.fill(this.uniformStates, AIR);
+        this.crossings = Arrays.stream(Direction.values()).mapToInt(direction -> crossing(direction, this.sectionBits)).toArray();
         this.block = new Layer(LightLayer.BLOCK);
         this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
     }
@@ -111,7 +107,7 @@ final class LightWindow {
         int x = blockX - this.originX;
         int y = blockY - this.minBlockY;
         int z = blockZ - this.originZ;
-        int slot = ((x >> 4) * CHUNKS + (z >> 4)) * this.sections + (y >> 4);
+        int slot = slot((x >> 4) * CHUNKS + (z >> 4), y >> 4);
         return slot << SLOT_SHIFT | (y & 15) << 8 | (z & 15) << 4 | x & 15;
     }
 
@@ -148,11 +144,23 @@ final class LightWindow {
     }
 
     int chunkIndex(int cell) {
-        return this.chunkOfSlot[slot(cell)];
+        return chunkOfSlot(slot(cell));
     }
 
     int sectionIndex(int cell) {
-        return this.sectionOfSlot[slot(cell)];
+        return sectionOfSlot(slot(cell));
+    }
+
+    int slot(int chunkIndex, int section) {
+        return chunkIndex << this.sectionBits | section + 1;
+    }
+
+    int chunkOfSlot(int slot) {
+        return slot >>> this.sectionBits;
+    }
+
+    int sectionOfSlot(int slot) {
+        return (slot & this.sectionMask) - 1;
     }
 
     int sections() {
@@ -179,21 +187,13 @@ final class LightWindow {
         return cell(this.originX + (RADIUS << 4) + localX, blockY, this.originZ + (RADIUS << 4) + localZ);
     }
 
-    boolean hasNeighbor(int cell, Direction direction) {
-        if (direction == Direction.DOWN)
-            return localY(cell) != 0 || sectionIndex(cell) != 0;
-
-        return direction != Direction.UP || localY(cell) != 15 || sectionIndex(cell) + 1 < this.sections;
-    }
-
     int neighbor(int cell, Direction direction) {
         int index = direction.ordinal();
         return cell + ((cell & EDGE_MASKS[index]) == EDGES[index] ? this.crossings[index] : STEPS[index]);
     }
 
     int withY(int cell, int sectionIndex, int localY) {
-        int slot = chunkIndex(cell) * this.sections + sectionIndex;
-        return slot << SLOT_SHIFT | localY << 8 | cell & 255;
+        return slot(chunkIndex(cell), sectionIndex) << SLOT_SHIFT | localY << 8 | cell & 255;
     }
 
     BlockState state(int cell) {
@@ -240,9 +240,11 @@ final class LightWindow {
             readNonEmpty(chunkIndex, centerLeaving && chunkIndex == CENTER);
         }
 
-        for (int slot = 0; slot < this.nonEmpty.length; slot++) {
-            int section = slot % this.sections;
-            this.nearNonEmpty[slot] = this.nonEmpty[slot] || section > 0 && this.nonEmpty[slot - 1] || section + 1 < this.sections && this.nonEmpty[slot + 1];
+        for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
+            for (int section = 0; section < this.sections; section++) {
+                int slot = slot(chunkIndex, section);
+                this.nearNonEmpty[slot] = this.nonEmpty[slot] || this.nonEmpty[slot - 1] || this.nonEmpty[slot + 1];
+            }
         }
 
         for (int chunkIndex : WRITTEN) {
@@ -279,7 +281,7 @@ final class LightWindow {
     int faceCell(int chunkIndex, int section, Direction direction, int along, int localY) {
         int x = direction.getStepX() == 0 ? along : direction.getStepX() > 0 ? 15 : 0;
         int z = direction.getStepZ() == 0 ? along : direction.getStepZ() > 0 ? 15 : 0;
-        return (chunkIndex * this.sections + section) << SLOT_SHIFT | localY << 8 | z << 4 | x;
+        return slot(chunkIndex, section) << SLOT_SHIFT | localY << 8 | z << 4 | x;
     }
 
     void unload() {
@@ -322,7 +324,8 @@ final class LightWindow {
     }
 
     private void readNonEmpty(int chunkIndex, boolean leaving) {
-        for (int slot = chunkIndex * this.sections; slot < (chunkIndex + 1) * this.sections; slot++) {
+        for (int section = 0; section < this.sections; section++) {
+            int slot = slot(chunkIndex, section);
             this.nonEmpty[slot] = !leaving && this.uniformStates[slot] == null;
         }
     }
@@ -375,7 +378,7 @@ final class LightWindow {
 
     private void openBlocks(int chunkIndex, LevelChunkSection @Nullable [] chunkSections) {
         for (int section = 0; section < this.sections; section++) {
-            int slot = chunkIndex * this.sections + section;
+            int slot = slot(chunkIndex, section);
             boolean inside = chunkSections != null && section >= 1 && section <= chunkSections.length;
             this.blockSections[slot] = inside ? chunkSections[section - 1] : null;
             this.uniformStates[slot] = uniformState(chunkSections == null, inside ? chunkSections[section - 1] : null);
@@ -405,8 +408,8 @@ final class LightWindow {
         return direction.getStepX() + (direction.getStepZ() << 4) + (direction.getStepY() << 8);
     }
 
-    private static int crossing(Direction direction, int sections) {
-        int slotStep = direction.getStepX() * CHUNKS * sections + direction.getStepZ() * sections + direction.getStepY();
+    private static int crossing(Direction direction, int sectionBits) {
+        int slotStep = ((direction.getStepX() * CHUNKS + direction.getStepZ()) << sectionBits) + direction.getStepY();
         return (slotStep << SLOT_SHIFT) - step(direction) * 15;
     }
 
@@ -426,7 +429,7 @@ final class LightWindow {
     private boolean nearNonEmptyAround(int chunkIndex, int section) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
-                if (this.nearNonEmpty[(chunkIndex + dx * CHUNKS + dz) * this.sections + section]) {
+                if (this.nearNonEmpty[slot(chunkIndex + dx * CHUNKS + dz, section)]) {
                     return true;
                 }
             }
@@ -480,7 +483,7 @@ final class LightWindow {
         private final byte[] enabling = new byte[CHUNKS * CHUNKS];
 
         private Layer(LightLayer type) {
-            int slots = CHUNKS * CHUNKS * LightWindow.this.sections;
+            int slots = CHUNKS * CHUNKS << LightWindow.this.sectionBits;
             this.type = type;
             this.current = new byte[slots][];
             this.owned = new boolean[slots];
@@ -492,7 +495,7 @@ final class LightWindow {
             for (int chunkIndex : WRITTEN) {
                 LightColumn column = columnIfPresent(chunkIndex);
                 for (int section = 0; column != null && section < LightWindow.this.sections; section++) {
-                    this.current[chunkIndex * LightWindow.this.sections + section] = column.sections(this.type).get(section);
+                    this.current[slot(chunkIndex, section)] = column.sections(this.type).get(section);
                 }
             }
         }
@@ -520,7 +523,7 @@ final class LightWindow {
         }
 
         boolean stored(int chunkIndex, int section) {
-            return this.current[chunkIndex * LightWindow.this.sections + section] != null;
+            return this.current[slot(chunkIndex, section)] != null;
         }
 
         int get(int cell) {
@@ -541,11 +544,11 @@ final class LightWindow {
         }
 
         boolean empty(int chunkIndex, int section) {
-            return this.current[chunkIndex * LightWindow.this.sections + section] == Nibbles.ZERO;
+            return this.current[slot(chunkIndex, section)] == Nibbles.ZERO;
         }
 
         void fill(int chunkIndex, int section, byte[] data) {
-            int slot = chunkIndex * LightWindow.this.sections + section;
+            int slot = slot(chunkIndex, section);
             this.current[slot] = data;
             this.owned[slot] = false;
             markChanged(slot);
@@ -586,8 +589,8 @@ final class LightWindow {
         }
 
         private void remove(int slot) {
-            int chunkIndex = slot / LightWindow.this.sections;
-            int section = slot % LightWindow.this.sections;
+            int chunkIndex = chunkOfSlot(slot);
+            int section = sectionOfSlot(slot);
             PendingLight queued = column(chunkIndex).queued();
             byte[] queuedData = queued == null ? null : queued.get(this.type, section);
             boolean retained = queued != null && queued.retained();
@@ -615,7 +618,7 @@ final class LightWindow {
 
         private void apply(int chunkIndex, PendingLight light) {
             for (int section = 0; section < LightWindow.this.sections; section++) {
-                int slot = chunkIndex * LightWindow.this.sections + section;
+                int slot = slot(chunkIndex, section);
                 byte[] lightData = this.current[slot] == null ? null : light.get(this.type, section);
                 if (lightData != null) {
                     this.dequeued.add(new Dequeued(light, slot, lightData));
@@ -630,8 +633,8 @@ final class LightWindow {
         }
 
         boolean differs(int chunkIndex, int neighborIndex, int section) {
-            byte[] data = this.current[chunkIndex * LightWindow.this.sections + section];
-            byte[] neighbor = this.current[neighborIndex * LightWindow.this.sections + section];
+            byte[] data = this.current[slot(chunkIndex, section)];
+            byte[] neighbor = this.current[slot(neighborIndex, section)];
             if (data == null && neighbor == null)
                 return false;
 
@@ -639,7 +642,7 @@ final class LightWindow {
         }
 
         private void updateStored(int chunkIndex, int section, boolean stored) {
-            int slot = chunkIndex * LightWindow.this.sections + section;
+            int slot = slot(chunkIndex, section);
             boolean present = this.current[slot] != null && !this.removing[slot];
             if (stored == present)
                 return;
@@ -667,7 +670,7 @@ final class LightWindow {
         }
 
         private byte[] freshData(int chunkIndex, int section, boolean lighted) {
-            if (this.type == LightLayer.BLOCK || lighted && LightWindow.this.nearNonEmpty[chunkIndex * LightWindow.this.sections + section])
+            if (this.type == LightLayer.BLOCK || lighted && LightWindow.this.nearNonEmpty[slot(chunkIndex, section)])
                 return Nibbles.ZERO;
 
             int top = topSection(chunkIndex);
@@ -677,7 +680,7 @@ final class LightWindow {
                     above++;
                 }
 
-                return Nibbles.bottomLayerRepeated(this.current[chunkIndex * LightWindow.this.sections + above]);
+                return Nibbles.bottomLayerRepeated(this.current[slot(chunkIndex, above)]);
             }
 
             return lighted || enabled(chunkIndex) ? Nibbles.FULL : Nibbles.ZERO;
@@ -693,8 +696,8 @@ final class LightWindow {
         private void publish(LightBatch batch) {
             for (int index = 0; index < this.changes.size(); index++) {
                 int slot = this.changes.getInt(index);
-                int chunkIndex = slot / LightWindow.this.sections;
-                int section = slot % LightWindow.this.sections;
+                int chunkIndex = chunkOfSlot(slot);
+                int section = sectionOfSlot(slot);
                 column(chunkIndex).sections(this.type).publish(section, this.owned[slot] ? Nibbles.canonical(this.current[slot]) : this.current[slot]);
                 this.published.add(SectionPos.asLong(chunkX(chunkIndex), LightWindow.this.minSection + section, chunkZ(chunkIndex)));
             }
@@ -703,7 +706,7 @@ final class LightWindow {
             this.published.clear();
 
             for (Dequeued entry : this.dequeued) {
-                entry.light().remove(this.type, entry.slot() % LightWindow.this.sections, entry.data());
+                entry.light().remove(this.type, sectionOfSlot(entry.slot()), entry.data());
             }
 
             for (int chunkIndex : WRITTEN) {
