@@ -1,6 +1,7 @@
 package fr.hardel.firefly.server;
 
 import fr.hardel.firefly.engine.ChunkWork;
+import fr.hardel.firefly.schedule.LightExecutor;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -15,8 +16,8 @@ final class WritingWorks {
     private final Stripe[] stripes = Stream.generate(Stripe::new).limit(STRIPES).toArray(Stripe[]::new);
 
     void add(ChunkWork work) {
-        for (int dx = -ChunkWork.WRITE_RADIUS; dx <= ChunkWork.WRITE_RADIUS; dx++) {
-            for (int dz = -ChunkWork.WRITE_RADIUS; dz <= ChunkWork.WRITE_RADIUS; dz++) {
+        for (int dx = -LightExecutor.RADIUS; dx <= LightExecutor.RADIUS; dx++) {
+            for (int dz = -LightExecutor.RADIUS; dz <= LightExecutor.RADIUS; dz++) {
                 long chunk = ChunkPos.pack(work.chunkX() + dx, work.chunkZ() + dz);
                 stripe(chunk).add(chunk, work);
             }
@@ -24,8 +25,8 @@ final class WritingWorks {
     }
 
     void remove(ChunkWork work) {
-        for (int dx = -ChunkWork.WRITE_RADIUS; dx <= ChunkWork.WRITE_RADIUS; dx++) {
-            for (int dz = -ChunkWork.WRITE_RADIUS; dz <= ChunkWork.WRITE_RADIUS; dz++) {
+        for (int dx = -LightExecutor.RADIUS; dx <= LightExecutor.RADIUS; dx++) {
+            for (int dz = -LightExecutor.RADIUS; dz <= LightExecutor.RADIUS; dz++) {
                 long chunk = ChunkPos.pack(work.chunkX() + dx, work.chunkZ() + dz);
                 stripe(chunk).remove(chunk, work);
             }

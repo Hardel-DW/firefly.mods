@@ -11,7 +11,7 @@ final class Held implements LightExecutor, LightOracle.Engine<FireflyLightEngine
     private final Deque<Runnable> tasks = new ArrayDeque<>();
 
     @Override
-    public void execute(LightChunkGetter level, int chunkX, int chunkZ, int radius, Runnable task) {
+    public void execute(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
         this.tasks.add(task);
     }
 

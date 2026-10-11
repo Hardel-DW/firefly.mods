@@ -26,8 +26,8 @@ public final class ReservingExecutor implements LightExecutor {
     }
 
     @Override
-    public void execute(LightChunkGetter level, int chunkX, int chunkZ, int radius, Runnable task) {
-        Reservation reservation = new Reservation(level, chunkX, chunkZ, radius, task);
+    public void execute(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
+        Reservation reservation = new Reservation(level, chunkX, chunkZ, task);
         boolean ready;
         synchronized (this.lastByChunk) {
             ready = queue(reservation);
@@ -84,12 +84,12 @@ public final class ReservingExecutor implements LightExecutor {
         private final Runnable task;
         private int before;
 
-        private Reservation(LightChunkGetter level, int chunkX, int chunkZ, int radius, Runnable task) {
+        private Reservation(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
             this.level = level;
             this.task = task;
-            this.minX = chunkX - radius;
-            this.minZ = chunkZ - radius;
-            this.width = 2 * radius + 1;
+            this.minX = chunkX - RADIUS;
+            this.minZ = chunkZ - RADIUS;
+            this.width = 2 * RADIUS + 1;
             this.area = new long[this.width * this.width];
             this.next = new Reservation[this.area.length];
             for (int index = 0; index < this.area.length; index++) {

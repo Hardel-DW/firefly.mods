@@ -1,5 +1,6 @@
 package fr.hardel.firefly.engine;
 
+import fr.hardel.firefly.schedule.LightExecutor;
 import fr.hardel.firefly.storage.ChunkLight;
 import fr.hardel.firefly.storage.LightColumn;
 import fr.hardel.firefly.storage.Nibbles;
@@ -22,7 +23,7 @@ import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 import org.jspecify.annotations.Nullable;
 
 final class LightWindow {
-    static final int RADIUS = 2;
+    static final int RADIUS = LightExecutor.RADIUS + 1;
     static final int CHUNKS = 2 * RADIUS + 1;
     static final int CENTER = RADIUS * CHUNKS + RADIUS;
     static final int[] WRITTEN = {CENTER - CHUNKS - 1, CENTER - CHUNKS, CENTER - CHUNKS + 1, CENTER - 1, CENTER, CENTER + 1, CENTER + CHUNKS - 1, CENTER + CHUNKS, CENTER + CHUNKS + 1};
@@ -486,7 +487,7 @@ final class LightWindow {
         }
 
         private void open() {
-            for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
+            for (int chunkIndex : WRITTEN) {
                 LightColumn column = columnIfPresent(chunkIndex);
                 for (int section = 0; column != null && section < LightWindow.this.sections; section++) {
                     this.current[chunkIndex * LightWindow.this.sections + section] = column.sections(this.type).get(section);

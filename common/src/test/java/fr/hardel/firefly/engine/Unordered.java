@@ -22,7 +22,7 @@ final class Unordered implements LightOracle.Engine<FireflyLightEngine>, LightEx
     }
 
     @Override
-    public void execute(LightChunkGetter level, int chunkX, int chunkZ, int radius, Runnable task) {
+    public void execute(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
         this.tasks.add(task);
     }
 

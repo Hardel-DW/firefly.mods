@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 class ReservingExecutorTest {
     private static final int COLLECTIONS = 10;
-    private static final int RADIUS = 2;
 
     @Test
     void overlappingTasksRunInTheOrderTheyWereSubmitted() {
@@ -26,12 +25,12 @@ class ReservingExecutorTest {
         CompletableFuture<Void> release = new CompletableFuture<>();
         CompletableFuture<Void> done = new CompletableFuture<>();
 
-        executor.execute(level, 0, 0, RADIUS, () -> {
+        executor.execute(level, 0, 0, () -> {
             release.join();
             order.add("first");
         });
-        executor.execute(level, 4, 0, RADIUS, () -> order.add("second"));
-        executor.execute(level, 8, 0, RADIUS, () -> {
+        executor.execute(level, 2, 0, () -> order.add("second"));
+        executor.execute(level, 4, 0, () -> {
             order.add("third");
             done.complete(null);
         });
@@ -57,7 +56,7 @@ class ReservingExecutorTest {
     private static WeakReference<LightChunkGetter> lightOnce(ReservingExecutor executor) {
         EmptyLevel level = new EmptyLevel();
         CompletableFuture<Void> done = new CompletableFuture<>();
-        executor.execute(level, 0, 0, RADIUS, () -> done.complete(null));
+        executor.execute(level, 0, 0, () -> done.complete(null));
         done.join();
         return new WeakReference<>(level);
     }

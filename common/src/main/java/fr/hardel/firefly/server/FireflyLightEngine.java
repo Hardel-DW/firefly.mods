@@ -219,7 +219,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
             LightBatch batch = new LightBatch(works.size());
             works.forEach(work -> {
                 this.writing.add(work);
-                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), work.radius(), () -> run(work, batch));
+                this.executor.execute(this.source, work.chunkX(), work.chunkZ(), () -> run(work, batch));
             });
         }
     }

@@ -14,7 +14,6 @@ public final class ChunkWork {
     private static final int ENABLE = 0;
     private static final int DISABLE = 1;
     private static final int PROPAGATE = 2;
-    public static final int WRITE_RADIUS = LightWindow.RADIUS - 1;
 
     private final int chunkX;
     private final int chunkZ;
@@ -23,7 +22,6 @@ public final class ChunkWork {
     private final List<Runnable> completions = new ArrayList<>();
     private final List<CompletableFuture<?>> futures = new ArrayList<>();
     private final CompletableFuture<Void> finished = new CompletableFuture<>();
-    private boolean propagating;
     private boolean reconciling;
     private @Nullable LightChunk unloaded;
 
@@ -44,10 +42,6 @@ public final class ChunkWork {
         return this.finished;
     }
 
-    public int radius() {
-        return this.checks.isEmpty() && !this.propagating ? WRITE_RADIUS : LightWindow.RADIUS;
-    }
-
     public void check(BlockPos pos) {
         this.checks.add(pos.asLong());
     }
@@ -57,7 +51,6 @@ public final class ChunkWork {
     }
 
     public void propagateLightSources() {
-        this.propagating = true;
         this.operations.add(PROPAGATE);
     }
 

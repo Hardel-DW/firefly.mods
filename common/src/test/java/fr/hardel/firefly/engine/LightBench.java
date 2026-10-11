@@ -25,7 +25,7 @@ class LightBench {
     private static final int WORLDS = 8;
     private static final int WARMUP_ROUNDS = 20;
     private static final int MEASURED_ROUNDS = 9;
-    private static final LightExecutor INLINE = (_, _, _, _, task) -> task.run();
+    private static final LightExecutor INLINE = (_, _, _, task) -> task.run();
 
     @Test
     void timesTheLightOfTheSameWorldsOnOneThread() {
