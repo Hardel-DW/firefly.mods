@@ -14,8 +14,10 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 
 public final class ReservingExecutor implements LightExecutor {
+    private static final int WIDTH = 2 * RADIUS + 1;
+
     private final ExecutorService pool;
-    private final Map<LightChunkGetter, Long2ObjectOpenHashMap<Reservation>> lastByChunk = new IdentityHashMap<>();
+    private final Map<LightChunkGetter, Long2ObjectOpenHashMap<Reservation>> holders = new IdentityHashMap<>();
 
     public ReservingExecutor(int threads) {
         this.pool = Executors.newFixedThreadPool(threads, new DaemonThreads());
@@ -28,46 +30,49 @@ public final class ReservingExecutor implements LightExecutor {
     @Override
     public void execute(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
         Reservation reservation = new Reservation(level, chunkX, chunkZ, task);
-        boolean ready;
-        synchronized (this.lastByChunk) {
-            ready = queue(reservation);
+        boolean held;
+        synchronized (this.holders) {
+            held = hold(reservation);
         }
 
-        if (ready) {
+        if (held) {
             this.pool.execute(reservation);
         }
     }
 
-    private boolean queue(Reservation reservation) {
-        Long2ObjectOpenHashMap<Reservation> last = this.lastByChunk.computeIfAbsent(reservation.level, _ -> new Long2ObjectOpenHashMap<>());
+    private boolean hold(Reservation reservation) {
+        Long2ObjectOpenHashMap<Reservation> held = this.holders.computeIfAbsent(reservation.level, _ -> new Long2ObjectOpenHashMap<>());
         for (long chunk : reservation.area) {
-            Reservation previous = last.put(chunk, reservation);
-            if (previous != null) {
-                previous.next[previous.indexOf(chunk)] = reservation;
-                reservation.before++;
+            Reservation holder = held.get(chunk);
+            if (holder != null) {
+                holder.waiting.add(reservation);
+                return false;
             }
         }
 
-        return reservation.before == 0;
+        for (long chunk : reservation.area) {
+            held.put(chunk, reservation);
+        }
+
+        return true;
     }
 
     private List<Reservation> release(Reservation reservation) {
         List<Reservation> ready = new ArrayList<>();
-        synchronized (this.lastByChunk) {
-            Long2ObjectOpenHashMap<Reservation> last = this.lastByChunk.get(reservation.level);
-            for (int index = 0; index < reservation.area.length; index++) {
-                Reservation next = reservation.next[index];
-                if (next == null) {
-                    last.remove(reservation.area[index]);
-                }
+        synchronized (this.holders) {
+            Long2ObjectOpenHashMap<Reservation> held = this.holders.get(reservation.level);
+            for (long chunk : reservation.area) {
+                held.remove(chunk);
+            }
 
-                if (next != null && --next.before == 0) {
-                    ready.add(next);
+            for (Reservation waiting : reservation.waiting) {
+                if (hold(waiting)) {
+                    ready.add(waiting);
                 }
             }
 
-            if (last.isEmpty()) {
-                this.lastByChunk.remove(reservation.level);
+            if (held.isEmpty()) {
+                this.holders.remove(reservation.level);
             }
         }
 
@@ -76,29 +81,16 @@ public final class ReservingExecutor implements LightExecutor {
 
     private final class Reservation implements Runnable {
         private final LightChunkGetter level;
-        private final int minX;
-        private final int minZ;
-        private final int width;
-        private final long[] area;
-        private final Reservation[] next;
+        private final long[] area = new long[WIDTH * WIDTH];
+        private final List<Reservation> waiting = new ArrayList<>(0);
         private final Runnable task;
-        private int before;
 
         private Reservation(LightChunkGetter level, int chunkX, int chunkZ, Runnable task) {
             this.level = level;
             this.task = task;
-            this.minX = chunkX - RADIUS;
-            this.minZ = chunkZ - RADIUS;
-            this.width = 2 * RADIUS + 1;
-            this.area = new long[this.width * this.width];
-            this.next = new Reservation[this.area.length];
             for (int index = 0; index < this.area.length; index++) {
-                this.area[index] = ChunkPos.pack(this.minX + index / this.width, this.minZ + index % this.width);
+                this.area[index] = ChunkPos.pack(chunkX - RADIUS + index / WIDTH, chunkZ - RADIUS + index % WIDTH);
             }
-        }
-
-        private int indexOf(long chunk) {
-            return (ChunkPos.getX(chunk) - this.minX) * this.width + ChunkPos.getZ(chunk) - this.minZ;
         }
 
         @Override

@@ -7,6 +7,7 @@ import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.chunk.LightChunk;
@@ -18,26 +19,31 @@ class ReservingExecutorTest {
     private static final int COLLECTIONS = 10;
 
     @Test
-    void overlappingTasksRunInTheOrderTheyWereSubmitted() {
+    void aTaskWaitsOnlyForTheRunningTasksItTouches() throws Exception {
         ReservingExecutor executor = new ReservingExecutor(4);
         EmptyLevel level = new EmptyLevel();
         List<String> order = new CopyOnWriteArrayList<>();
         CompletableFuture<Void> release = new CompletableFuture<>();
-        CompletableFuture<Void> done = new CompletableFuture<>();
+        CompletableFuture<Void> second = new CompletableFuture<>();
+        CompletableFuture<Void> third = new CompletableFuture<>();
 
         executor.execute(level, 0, 0, () -> {
             release.join();
             order.add("first");
         });
-        executor.execute(level, 2, 0, () -> order.add("second"));
+        executor.execute(level, 2, 0, () -> {
+            order.add("second");
+            second.complete(null);
+        });
         executor.execute(level, 4, 0, () -> {
             order.add("third");
-            done.complete(null);
+            third.complete(null);
         });
+        third.get(10, TimeUnit.SECONDS);
         release.complete(null);
-        done.join();
+        second.get(10, TimeUnit.SECONDS);
 
-        assertEquals(List.of("first", "second", "third"), order);
+        assertEquals(List.of("third", "first", "second"), order);
     }
 
     @Test
