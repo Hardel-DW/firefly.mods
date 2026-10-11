@@ -145,7 +145,7 @@ abstract class Propagator {
 
         int level = this.layer.get(cell);
         int acrossLevel = this.layer.level(across);
-        if (level == 0 && acrossLevel >= 0 && acrossLevel <= 1)
+        if (level == LightEngine.MAX_LEVEL || level == 0 && acrossLevel >= 0 && acrossLevel <= 1)
             return;
 
         int expected = expectedLevel(cell);
@@ -162,7 +162,7 @@ abstract class Propagator {
     private int expectedLevel(int cell) {
         BlockState state = this.window.state(cell);
         int expected = sourceLevel(cell, state);
-        if (expected == LightEngine.MAX_LEVEL)
+        if (expected == LightEngine.MAX_LEVEL || state.getLightDampening() >= LightEngine.MAX_LEVEL)
             return expected;
 
         for (Direction direction : DIRECTIONS) {
