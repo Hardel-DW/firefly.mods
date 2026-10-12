@@ -15,12 +15,13 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public record FireflyConfig(int threads) {
+public record FireflyConfig(int threads, boolean sharedThreads) {
     public static final int THIRD_OF_CORES = -1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static final Codec<FireflyConfig> CODEC = RecordCodecBuilder.create(builder -> builder.group(
-        Codec.INT.validate(FireflyConfig::validThreads).optionalFieldOf("threads", THIRD_OF_CORES).forGetter(FireflyConfig::threads)
+        Codec.INT.validate(FireflyConfig::validThreads).optionalFieldOf("threads", THIRD_OF_CORES).forGetter(FireflyConfig::threads),
+        Codec.BOOL.optionalFieldOf("shared_threads", true).forGetter(FireflyConfig::sharedThreads)
     ).apply(builder, FireflyConfig::new));
 
     private static FireflyConfig instance = defaults();
