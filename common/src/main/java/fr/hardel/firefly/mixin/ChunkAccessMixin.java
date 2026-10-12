@@ -5,7 +5,6 @@ import fr.hardel.firefly.storage.LightColumn;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ImposterProtoChunk;
-import net.minecraft.world.level.lighting.ChunkSkyLightSources;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -20,18 +19,13 @@ public abstract class ChunkAccessMixin implements ChunkLight {
     @Final
     protected LevelHeightAccessor levelHeightAccessor;
 
-    @Shadow
-    protected ChunkSkyLightSources skyLightSources;
-
     @Unique
     private LightColumn firefly$light;
 
     @Inject(method = "<init>", at = @At("TAIL"))
     private void firefly$createLight(CallbackInfo callback) {
-        if ((Object) this instanceof ImposterProtoChunk) {
-            this.skyLightSources = null;
+        if ((Object) this instanceof ImposterProtoChunk)
             return;
-        }
 
         this.firefly$light = new LightColumn(this.levelHeightAccessor.getSectionsCount() + 2);
     }
