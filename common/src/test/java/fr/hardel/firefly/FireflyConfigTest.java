@@ -1,7 +1,6 @@
 package fr.hardel.firefly;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -35,27 +34,17 @@ class FireflyConfigTest {
     }
 
     @Test
-    void invalidFilesFailTheBootNamingFileAndCause(@TempDir Path directory) throws IOException {
-        record Invalid(String json, String cause) {
+    void anInvalidEntryTakesItsDefaultAndKeepsTheOthers(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("firefly.json");
+        for (String threads : List.of("0", "1025", "\"lots\"")) {
+            Files.writeString(file, "{\"threads\": %s, \"shared_threads\": false, \"unknown\": 3}".formatted(threads));
+            assertEquals(new FireflyConfig(FireflyConfig.THIRD_OF_CORES, false), FireflyConfig.load(file), threads);
         }
 
-        List<Invalid> cases = List.of(
-            new Invalid("{\"threads\": 0}", "threads"),
-            new Invalid("{\"threads\": 1025}", "threads"),
-            new Invalid("{\"threads\": \"lots\"}", null),
-            new Invalid("{oops", null),
-            new Invalid("", null)
-        );
-
-        for (Invalid invalid : cases) {
-            Path file = directory.resolve("firefly.json");
-            Files.writeString(file, invalid.json());
-
-            IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> FireflyConfig.load(file), invalid.json());
-            assertTrue(exception.getMessage().contains(file.toString()), invalid.json());
-            if (invalid.cause() != null) {
-                assertTrue(exception.getMessage().contains(invalid.cause()), invalid.json());
-            }
+        for (String broken : List.of("{oops", "", "[1, 2]")) {
+            Files.writeString(file, broken);
+            assertEquals(FireflyConfig.defaults(), FireflyConfig.load(file), broken);
+            assertEquals(broken, Files.readString(file));
         }
     }
 }

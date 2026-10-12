@@ -20,14 +20,14 @@ public record FireflyConfig(int threads, boolean sharedThreads) {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static final Codec<FireflyConfig> CODEC = RecordCodecBuilder.create(builder -> builder.group(
-        Codec.INT.validate(FireflyConfig::validThreads).optionalFieldOf("threads", THIRD_OF_CORES).forGetter(FireflyConfig::threads),
-        Codec.BOOL.optionalFieldOf("shared_threads", true).forGetter(FireflyConfig::sharedThreads)
+        Codec.INT.validate(FireflyConfig::validThreads).lenientOptionalFieldOf("threads", THIRD_OF_CORES).forGetter(FireflyConfig::threads),
+        Codec.BOOL.lenientOptionalFieldOf("shared_threads", true).forGetter(FireflyConfig::sharedThreads)
     ).apply(builder, FireflyConfig::new));
 
     private static FireflyConfig instance = defaults();
 
     public static void register(Path configDir) {
-        instance = load(configDir.resolve(Firefly.MOD_ID + ".json"));
+        instance = load(configDir.resolve("%s.json".formatted(Firefly.MOD_ID)));
     }
 
     public static FireflyConfig get() {
@@ -39,7 +39,7 @@ public record FireflyConfig(int threads, boolean sharedThreads) {
     }
 
     static FireflyConfig load(Path file) {
-        return Files.notExists(file) ? write(file, defaults()) : parse(file, read(file));
+        return Files.notExists(file) ? write(file, defaults()) : parse(read(file));
     }
 
     public int effectiveThreads() {
@@ -47,28 +47,18 @@ public record FireflyConfig(int threads, boolean sharedThreads) {
     }
 
     private static DataResult<Integer> validThreads(int threads) {
-        if (threads > 1024)
-            return DataResult.error(() -> "threads must be at most 1024, negative uses a third of the cores");
-
-        if (threads == 0)
-            return DataResult.error(() -> "threads 0 is invalid: negative uses a third of the cores");
-
-        return DataResult.success(threads);
+        return threads == 0 || threads > 1024 ? DataResult.error(() -> "threads must be negative or between 1 and 1024") : DataResult.success(threads);
     }
 
-    private static JsonObject encode(FireflyConfig config) {
-        return CODEC.encodeStart(JsonOps.INSTANCE, config).getOrThrow().getAsJsonObject();
-    }
-
-    private static FireflyConfig parse(Path file, JsonElement json) {
-        return CODEC.parse(JsonOps.INSTANCE, json).getOrThrow(error -> new IllegalArgumentException("Config %s is invalid: %s".formatted(file, error)));
+    private static FireflyConfig parse(JsonElement json) {
+        return CODEC.parse(JsonOps.INSTANCE, json).result().orElseGet(FireflyConfig::defaults);
     }
 
     private static JsonElement read(Path file) {
         try {
             return JsonParser.parseString(Files.readString(file));
         } catch (JsonParseException exception) {
-            throw new IllegalArgumentException("Config %s is not valid JSON".formatted(file), exception);
+            return new JsonObject();
         } catch (IOException exception) {
             throw new UncheckedIOException("Unable to read %s".formatted(file), exception);
         }
@@ -77,7 +67,7 @@ public record FireflyConfig(int threads, boolean sharedThreads) {
     private static FireflyConfig write(Path file, FireflyConfig config) {
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, "%s%s".formatted(GSON.toJson(encode(config)), System.lineSeparator()));
+            Files.writeString(file, "%s%s".formatted(GSON.toJson(CODEC.encodeStart(JsonOps.INSTANCE, config).getOrThrow()), System.lineSeparator()));
         } catch (IOException exception) {
             throw new UncheckedIOException("Unable to write %s".formatted(file), exception);
         }
