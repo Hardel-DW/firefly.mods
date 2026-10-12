@@ -13,20 +13,21 @@ Chaque run part d'un serveur vierge, même process reproductible, avec les moteu
 - `light` génère 14 161 chunks sans lumière, puis les éclaire. Il mesure les chunks éclairés par seconde, le CPU et la RAM par chunk.
 - `latency` pose puis retire 2 000 sources de lumière, une par une. Il mesure le temps avant que la nouvelle lumière soit visible.
 - `lightid` compare la lumière de chaque section à un calcul de zéro, dans l'overworld, le Nether et l'End, avant et après 400 modifications. Il mesure la justesse.
-- `reflight` fait voler un bot sous Leafs, avec 32 de `distance d'affichage`, sur un monde déjà généré. Il mesure le temps de l'étape de lumière.
+- `reflight` fait voler un bot sous Leafs, avec 32 de `distance d'affichage`, sur un monde déjà généré. Il mesure le temps de l'étape de lumière des chunks relus du disque, et des quelques chunks générés au bord.
 
 ## Résultats
-Firefly V0.1.0, Minecraft 26.3. Pour le bench `reflight` il tourne avec Leafs, 12 threads de régions et 12 threads de chunks.
+Firefly V0.1.2, Minecraft 26.3, médiane de 3 runs. Pour le bench `reflight` il tourne avec Leafs, 12 threads de régions et 12 threads de chunks.
 > Quand leaf est installer Firefly utilise les thread de chunk de leaf au lieux des siens.
 
 | mesure | Firefly | ScalableLux | vanilla |
 |---|---|---|---|
-| Chunks éclairés par seconde | 10 680 | 9 549 | 1 466 |
-| CPU par chunk | 524 µs | 506 µs | ? |
+| Chunks éclairés par seconde | 10 885 | 9 907 | 1 523 |
+| CPU par chunk | 480 µs | 518 µs | ? |
 | RAM allouée par chunk | 33 Ko | 28 Ko | ? |
-| Bloc posé, p50 | 0,32 ms | 0,27 ms | 48 ms |
+| Bloc posé, p50 / p99 | 0,26 / 0,48 ms | 0,27 / 0,48 ms | 49 / 51 ms |
 | RAM gardée par chunk | 10,2 Ko | 14,6 Ko | 12,6 Ko |
-| `reflight`, p50 / p90 / p99 | 4,6 / 39 / 185 ms | 2,7 / 26 / 236 ms | ? |
+| `reflight`, chunks relus, p50 / p90 / p99 | 0,39 / 1,1 / 49 ms | 0,84 / 4,9 / 67 ms | ? |
+| `reflight`, chunks générés, p50 / p90 / p99 | 2,9 / 42 / 117 ms | 3,2 / 25 / 74 ms | ? |
 | `lightid`, sections fausses | 0 | 0 | 0 |
 
 ## D'où viennent les gains
@@ -35,5 +36,7 @@ Firefly V0.1.0, Minecraft 26.3. Pour le bench `reflight` il tourne avec Leafs, 1
 - Un chunk généré n'a qu'une tâche au lieu de deux.
 - Le calcul des hauteurs du ciel quitte le thread de génération de vanilla, et passe dans la tâche.
 - Chaque thread réutilise sa mémoire de travail d'une tâche à l'autre. La RAM allouée passe de 101 à 33 Ko par chunk.
-- Les sections toutes noires ou toutes à 15 partagent un seul tableau. D'où 10,2 Ko par chunk.
+- Les sections toutes noires ou toutes à 15 partagent un seul tableau, même après un rechargement. D'où 10,2 Ko par chunk.
+- Un chunk relu ne vérifie que ses bords, et saute les blocs à 15 et les blocs opaques. Deux fois plus rapide que ScalableLux.
+- Une tâche ne réserve que les 3x3 chunks qu'elle écrit, et seulement au moment où elle démarre.
 - Seules les sections qui changent partent au joueur.
