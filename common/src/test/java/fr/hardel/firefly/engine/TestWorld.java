@@ -247,7 +247,7 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
     }
 
     private static PalettedContainerFactory containers() {
-        Holder<Biome> plains = VanillaRegistries.createWorldLookup().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
+        Holder<Biome> plains = VanillaRegistries.createLookup().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
         CrudeIncrementalIntIdentityHashBiMap<Holder<Biome>> biomes = CrudeIncrementalIntIdentityHashBiMap.create(1);
         biomes.add(plains);
         Strategy<BlockState> blockStrategy = Strategy.createForBlockStates(Block.BLOCK_STATE_REGISTRY);
