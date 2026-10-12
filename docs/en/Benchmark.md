@@ -17,7 +17,7 @@ Every run starts from a fresh server, with the same reproducible process, on the
 
 ## Results
 Firefly V0.1.2, Minecraft 26.3, median of 3 runs. For the `reflight` bench it runs with Leafs, 12 region threads and 12 chunk threads.
-> When Leafs is installed, Firefly uses the Leafs chunk threads instead of its own. For a fair comparison, `reflight` runs with `shared_threads` set to `false`, so Firefly keeps its 8 threads like ScalableLux.
+> When Leafs is installed, Firefly uses the Leafs chunk threads instead of its own. Leafs runs the light of a chunk before generating other chunks.
 
 | measure | Firefly | ScalableLux | vanilla |
 |---|---|---|---|
@@ -26,8 +26,8 @@ Firefly V0.1.2, Minecraft 26.3, median of 3 runs. For the `reflight` bench it ru
 | RAM allocated per chunk | 33 KB | 28 KB | ? |
 | Placed block, p50 / p99 | 0.26 / 0.48 ms | 0.27 / 0.48 ms | 49 / 51 ms |
 | RAM kept per chunk | 10.2 KB | 14.6 KB | 12.6 KB |
-| `reflight`, chunks read back, p50 / p90 / p99 | 0.39 / 2.1 / 27 ms | 0.84 / 4.9 / 67 ms | ? |
-| `reflight`, chunks generated, p50 / p90 / p99 | 2.4 / 8.4 / 46 ms | 3.2 / 25 / 74 ms | ? |
+| `reflight`, chunks read back, p50 / p90 / p99 | 0.47 / 1.2 / 8.7 ms | 0.84 / 4.9 / 67 ms | ? |
+| `reflight`, chunks generated, p50 / p90 / p99 | 1.9 / 5.9 / 13 ms | 3.2 / 25 / 74 ms | ? |
 | `lightid`, wrong sections | 0 | 0 | 0 |
 
 ## Where the gains come from
