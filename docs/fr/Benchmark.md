@@ -25,7 +25,7 @@ Firefly V0.1.2, Minecraft 26.3, médiane de 3 runs. Pour le bench `reflight` il 
 | CPU par chunk | 480 µs | 518 µs | ? |
 | RAM allouée par chunk | 33 Ko | 28 Ko | ? |
 | Bloc posé, p50 / p99 | 0,26 / 0,48 ms | 0,27 / 0,48 ms | 49 / 51 ms |
-| RAM gardée par chunk | 10,2 Ko | 14,6 Ko | 12,6 Ko |
+| RAM gardée par chunk | 9,5 Ko | 14,6 Ko | 12,6 Ko |
 | `reflight`, chunks relus, p50 / p90 / p99 | 0,47 / 1,2 / 8,7 ms | 0,84 / 4,9 / 67 ms | ? |
 | `reflight`, chunks générés, p50 / p90 / p99 | 1,9 / 5,9 / 13 ms | 3,2 / 25 / 74 ms | ? |
 | `lightid`, sections fausses | 0 | 0 | 0 |
@@ -36,7 +36,7 @@ Firefly V0.1.2, Minecraft 26.3, médiane de 3 runs. Pour le bench `reflight` il 
 - Un chunk généré n'a qu'une tâche au lieu de deux.
 - Le calcul des hauteurs du ciel quitte le thread de génération de vanilla, et passe dans la tâche.
 - Chaque thread réutilise sa mémoire de travail d'une tâche à l'autre. La RAM allouée passe de 101 à 33 Ko par chunk.
-- Les sections toutes noires ou toutes à 15 partagent un seul tableau, même après un rechargement. D'où 10,2 Ko par chunk.
+- Les sections toutes noires ou toutes à 15 partagent un seul tableau, même après un rechargement. D'où 9,5 Ko par chunk.
 - Un chunk relu ne vérifie que ses bords, et saute les blocs à 15 et les blocs opaques. Deux fois plus rapide que ScalableLux.
 - Une tâche ne réserve que les 3x3 chunks qu'elle écrit, et seulement au moment où elle démarre.
 - Seules les sections qui changent partent au joueur.
