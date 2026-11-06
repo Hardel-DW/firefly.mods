@@ -8,6 +8,7 @@
 		"ChunkStatusTasksMixin",
 		"ImposterProtoChunkMixin",
 		"LevelChunkMixin",
+		"LevelLightEngineMixin",
 		"ProtoChunkMixin",
 		"SerializableChunkDataMixin"
 	],
