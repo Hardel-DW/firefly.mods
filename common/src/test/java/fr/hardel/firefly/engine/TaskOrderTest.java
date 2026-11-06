@@ -39,6 +39,18 @@ class TaskOrderTest {
         assertEquals(List.of(), inBothOrders(-16, 64, true, before, edits));
     }
 
+    @Test
+    void aRoofCutWithItsSectionsLetsTheSkyIntoTheNextChunk() {
+        List<TestWorld.Edit> before = new ArrayList<>(List.of(edit(40, 24, 56, STONE), edit(88, 24, 56, STONE)));
+        box(before, 64, 64, 48, 79, 64, 63, STONE);
+        box(before, 48, 24, 48, 63, 24, 63, STONE);
+        List<TestWorld.Edit> edits = new ArrayList<>();
+        box(edits, 48, 24, 48, 63, 24, 63, AIR);
+        edits.add(edit(40, 24, 56, AIR));
+
+        assertEquals(List.of(), inBothOrders(0, 128, true, before, edits));
+    }
+
     private static List<String> inBothOrders(int minY, int height, boolean sky, List<TestWorld.Edit> before, List<TestWorld.Edit> edits) {
         List<String> differences = new ArrayList<>(run("in order", minY, height, sky, before, edits));
         differences.addAll(run("reversed", minY, height, sky, before, edits.reversed()));

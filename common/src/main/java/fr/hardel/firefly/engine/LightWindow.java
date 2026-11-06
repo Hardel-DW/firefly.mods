@@ -21,6 +21,7 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine;
 import org.jspecify.annotations.Nullable;
 
 final class LightWindow {
@@ -605,7 +606,7 @@ final class LightWindow {
         }
 
         private void removeOrKeep(int slot) {
-            if (keepsCheckedLight(slot)) {
+            if (!besideAMissingChunk(chunkOfSlot(slot)) && awaitsItsChecks(slot)) {
                 this.removing[slot] = false;
                 return;
             }
@@ -613,8 +614,24 @@ final class LightWindow {
             remove(slot);
         }
 
-        private boolean keepsCheckedLight(int slot) {
-            return this.type == LightLayer.BLOCK && !besideAMissingChunk(chunkOfSlot(slot)) && Nibbles.canonical(this.current[slot]) != Nibbles.ZERO;
+        private boolean awaitsItsChecks(int slot) {
+            if (this.type == LightLayer.BLOCK)
+                return Nibbles.canonical(this.current[slot]) != Nibbles.ZERO;
+
+            return enabled(chunkOfSlot(slot)) && differsFromItsSources(chunkOfSlot(slot), sectionOfSlot(slot), this.current[slot]);
+        }
+
+        private boolean differsFromItsSources(int chunkIndex, int section, byte[] data) {
+            ChunkSkyLightSources sources = sourcesOrEmpty(chunkIndex);
+            int bottomY = sectionBottomY(section);
+            for (int index = 0; index < COLUMNS * 16; index++) {
+                boolean source = bottomY + (index >> 8) >= sources.getLowestSourceY(index & 15, index >> 4 & 15);
+                if (source != (Nibbles.get(data, index) == LightEngine.MAX_LEVEL)) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void remove(int slot) {
