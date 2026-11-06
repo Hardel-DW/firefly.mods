@@ -10,7 +10,8 @@
 		"LevelChunkMixin",
 		"LevelLightEngineMixin",
 		"ProtoChunkMixin",
-		"SerializableChunkDataMixin"
+		"SerializableChunkDataMixin",
+		"WorldGenRegionMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
