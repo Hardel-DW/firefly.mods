@@ -23,6 +23,14 @@ class TaskOrderTest {
     private static final Block AIR = Blocks.AIR;
 
     @Test
+    void aLampLitByTheTaskBesideItStillLightsTheNextChunk() {
+        List<TestWorld.Edit> before = List.of(edit(47, 24, 56, LAMP));
+        List<TestWorld.Edit> edits = List.of(edit(61, 24, 56, LAMP), edit(47, 24, 56, AIR));
+
+        assertEquals(List.of(), inBothOrders(-16, 64, false, before, edits));
+    }
+
+    @Test
     void aSectionEmptiedBeforeItsCheckLeavesNoLightBehind() {
         List<TestWorld.Edit> before = List.of(edit(40, 24, 56, STONE), edit(88, 24, 56, STONE), edit(63, 24, 56, LAMP));
         List<TestWorld.Edit> edits = List.of(edit(63, 24, 56, AIR), edit(40, 24, 56, AIR));

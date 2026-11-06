@@ -259,7 +259,8 @@ abstract class Propagator {
             return;
         }
 
-        int toEmission = decreasedEmission(to);
+        int emission = decreasedEmission(to);
+        int toEmission = emission > toLevel ? 0 : emission;
         this.layer.set(to, 0);
         if (toEmission < toLevel) {
             decrease(to, QueueEntry.decreaseSkipOneDirection(toLevel, opposite(direction)));
