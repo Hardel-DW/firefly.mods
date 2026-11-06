@@ -60,6 +60,7 @@ final class LightWindow {
     private final IntArrayList initialized = new IntArrayList();
     private final @Nullable Boolean[] initializations = new Boolean[CHUNKS * CHUNKS];
     private boolean savedApplied;
+    private boolean leaving;
     private int chunkX;
     private int chunkZ;
     private int originX;
@@ -236,6 +237,7 @@ final class LightWindow {
     }
 
     void refreshStorage(boolean centerLeaving) {
+        this.leaving = centerLeaving;
         for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
             readNonEmpty(chunkIndex, centerLeaving && chunkIndex == CENTER);
         }
@@ -317,6 +319,7 @@ final class LightWindow {
         this.initialized.clear();
         Arrays.fill(this.initializations, null);
         this.savedApplied = false;
+        this.leaving = false;
         this.block.close();
         if (this.sky != null) {
             this.sky.close();
@@ -450,6 +453,19 @@ final class LightWindow {
         this.initializations[chunkIndex] = lighted;
     }
 
+    private boolean besideAMissingChunk(int chunkIndex) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int around = chunkIndex + dx * CHUNKS + dz;
+                if (this.chunks[around] == null || this.leaving && around == CENTER) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private LightColumn column(int chunkIndex) {
         return ((ChunkLight) this.chunks[chunkIndex]).firefly$light();
     }
@@ -579,13 +595,26 @@ final class LightWindow {
         void finish() {
             for (int slot = 0; slot < this.removing.length; slot++) {
                 if (this.removing[slot]) {
-                    remove(slot);
+                    removeOrKeep(slot);
                 }
             }
 
             for (int chunkIndex : WRITTEN) {
                 applyQueued(chunkIndex);
             }
+        }
+
+        private void removeOrKeep(int slot) {
+            if (keepsCheckedLight(slot)) {
+                this.removing[slot] = false;
+                return;
+            }
+
+            remove(slot);
+        }
+
+        private boolean keepsCheckedLight(int slot) {
+            return this.type == LightLayer.BLOCK && !besideAMissingChunk(chunkOfSlot(slot)) && Nibbles.canonical(this.current[slot]) != Nibbles.ZERO;
         }
 
         private void remove(int slot) {
