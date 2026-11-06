@@ -8,8 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -57,6 +60,35 @@ class TaskOrderTest {
         edits.add(edit(40, 24, 56, AIR));
 
         assertEquals(List.of(), inBothOrders(0, 128, true, before, edits));
+    }
+
+    @Test
+    void aBlockWrittenBetweenTheInitializationAndTheLightOfAChunkIsLit() {
+        ChunkPos pos = new ChunkPos(3, 3);
+        TestWorld.Edit lamp = edit(56, 40, 56, LAMP);
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        List<ProtoChunk> chunks = world.chunks();
+        chunks.forEach(chunk -> engine.initializeLightAhead(chunk, false));
+        chunks.stream().filter(chunk -> !chunk.getPos().equals(pos)).forEach(chunk -> {
+            engine.lightChunk(chunk, false);
+            chunk.setPersistedStatus(ChunkStatus.LIGHT);
+            chunk.setLightEngine(engine);
+        });
+        held.settle(engine);
+        ProtoChunk chunk = world.chunk(lamp.pos());
+        chunk.setPersistedStatus(ChunkStatus.INITIALIZE_LIGHT);
+        chunk.setLightEngine(engine);
+        world.set(lamp);
+        engine.lightChunk(chunk, false);
+        held.settle(engine);
+
+        TestWorld reference = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        reference.setUnseen(lamp);
+        LevelLightEngine fromZero = LightOracle.VANILLA.create(reference, true);
+        reference.light(fromZero, LightOracle.VANILLA);
+        assertEquals(List.of(), LightOracle.read("written before its light", fromZero, engine));
     }
 
     private static List<String> inBothOrders(int minY, int height, boolean sky, List<TestWorld.Edit> before, List<TestWorld.Edit> edits) {
