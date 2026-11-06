@@ -18,6 +18,7 @@ import java.util.function.Consumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
+import net.minecraft.util.RandomSource;
 import net.minecraft.util.thread.ConsecutiveExecutor;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
@@ -44,6 +45,10 @@ class BulkEditTest {
     private static final int PASTE_X = 8;
     private static final int PASTE_Y = 24;
     private static final int QUEUED = 3;
+    private static final long[] RANDOM_SEEDS = {0, 1, 2, 3, 4};
+    private static final int RANDOM_MIN_Y = 0;
+    private static final int RANDOM_HEIGHT = 48;
+    private static final int RANDOM_ROUNDS = 24;
 
     @Test
     void vanillaLightsACutAndPasteLikeLightFromZero() {
@@ -90,6 +95,16 @@ class BulkEditTest {
         held.settle(engine);
 
         assertEquals(List.of(), LightOracle.read("from a vanilla task", lightFromZero(), engine));
+    }
+
+    @Test
+    void randomBoxesInTheWrongOrderLightLikeLightFromZero() {
+        List<String> differences = new ArrayList<>();
+        for (long seed : RANDOM_SEEDS) {
+            differences.addAll(randomBoxes(seed));
+        }
+
+        assertEquals(List.of(), differences);
     }
 
     @Test
@@ -154,6 +169,40 @@ class BulkEditTest {
 
         assertEquals(QUEUED, engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(SectionPos.of(pos)).get(0, 0, 0));
         assertTrue(((ChunkLight) chunk).firefly$light().queued().retained());
+    }
+
+    private static List<String> randomBoxes(long seed) {
+        TestWorld world = new TestWorld(seed, RANDOM_MIN_Y, RANDOM_HEIGHT, TestWorld.PALETTE);
+        Unordered unordered = new Unordered(seed + 1);
+        FireflyLightEngine engine = unordered.create(world, true);
+        unordered.light(world, engine);
+        RandomSource random = RandomSource.create(seed * 31 + RANDOM_MIN_Y);
+        List<TestWorld.Edit> edits = new ArrayList<>();
+        for (int round = 0; round < RANDOM_ROUNDS; round++) {
+            List<TestWorld.Edit> box = randomBox(random, world);
+            edits.addAll(box);
+            box.forEach(world::set);
+            unordered.settle(engine);
+        }
+
+        TestWorld reference = new TestWorld(seed, RANDOM_MIN_Y, RANDOM_HEIGHT, TestWorld.PALETTE);
+        edits.forEach(reference::setUnseen);
+        LevelLightEngine fromZero = LightOracle.VANILLA.create(reference, true);
+        reference.light(fromZero, LightOracle.VANILLA);
+        return LightOracle.read("seed %d".formatted(seed), fromZero, engine);
+    }
+
+    private static List<TestWorld.Edit> randomBox(RandomSource random, TestWorld world) {
+        int chunkX = random.nextInt(TestWorld.SIZE - 2);
+        int chunkZ = random.nextInt(TestWorld.SIZE - 2);
+        int sectionY = RANDOM_MIN_Y + 16 * random.nextInt(RANDOM_HEIGHT / 16);
+        BlockState state = random.nextInt(3) == 0 ? TestWorld.PALETTE.get(random.nextInt(TestWorld.PALETTE.size())) : Blocks.AIR.defaultBlockState();
+        int maxX = chunkX * 16 + 16 * (1 + random.nextInt(3)) - 1;
+        int maxY = Math.min(sectionY + 16 * (1 + random.nextInt(2)) - 1, world.maxBlockY());
+        int maxZ = chunkZ * 16 + 16 * (1 + random.nextInt(3)) - 1;
+        List<TestWorld.Edit> box = new ArrayList<>();
+        BlockPos.betweenClosed(chunkX * 16, sectionY, chunkZ * 16, maxX, maxY, maxZ).forEach(pos -> box.add(new TestWorld.Edit(pos.immutable(), state)));
+        return box;
     }
 
     private static void cutAndPaste(TestWorld world, LevelLightEngine engine, Consumer<BlockPos> check) {

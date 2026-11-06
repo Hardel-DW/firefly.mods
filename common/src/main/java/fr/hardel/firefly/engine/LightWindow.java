@@ -455,19 +455,6 @@ final class LightWindow {
         this.initializations[chunkIndex] = lighted;
     }
 
-    private boolean besideAMissingChunk(int chunkIndex) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                int around = chunkIndex + dx * CHUNKS + dz;
-                if (this.chunks[around] == null || this.leaving && around == CENTER) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private LightColumn column(int chunkIndex) {
         return ((ChunkLight) this.chunks[chunkIndex]).firefly$light();
     }
@@ -619,7 +606,8 @@ final class LightWindow {
         }
 
         private void removeOrKeep(int slot) {
-            if (!besideAMissingChunk(chunkOfSlot(slot)) && awaitsItsChecks(slot)) {
+            boolean leavingWithItsChunk = LightWindow.this.leaving && chunkOfSlot(slot) == CENTER;
+            if (!leavingWithItsChunk && awaitsItsChecks(slot)) {
                 this.removing[slot] = false;
                 return;
             }
