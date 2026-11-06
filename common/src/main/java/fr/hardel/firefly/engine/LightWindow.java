@@ -86,14 +86,15 @@ final class LightWindow {
         this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
     }
 
-    void open(int chunkX, int chunkZ) {
+    void open(int chunkX, int chunkZ, @Nullable LightChunk lit) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
         this.originX = SectionPos.sectionToBlockCoord(chunkX - RADIUS);
         this.originZ = SectionPos.sectionToBlockCoord(chunkZ - RADIUS);
         for (int dx = 0; dx < CHUNKS; dx++) {
             for (int dz = 0; dz < CHUNKS; dz++) {
-                LightChunk chunk = this.source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk visible = this.source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk chunk = visible == null && dx * CHUNKS + dz == CENTER ? lit : visible;
                 this.chunks[dx * CHUNKS + dz] = chunk;
                 openBlocks(dx * CHUNKS + dz, chunk == null ? null : ((ChunkAccess) chunk).getSections());
             }

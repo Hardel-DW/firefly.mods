@@ -215,6 +215,27 @@ class LoadedChunkTest {
         assertEquals(List.of(), LightOracle.read("loaded again under a roof", lightFromZero(roof(), true), engine));
     }
 
+    @Test
+    void aChunkLitWhileItLeftTheLevelIsLitAllTheSame() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+        ProtoChunk unloaded = world.unload(LOADED);
+        engine.unload(unloaded);
+        held.settle(engine);
+        ProtoChunk fresh = world.load(unloaded, ChunkStatus.INITIALIZE_LIGHT, false);
+        engine.initializeLightAhead(fresh, false);
+        engine.lightChunk(fresh, false);
+        world.unload(LOADED);
+        held.settle(engine);
+
+        PendingLight saved = saved(engine, fresh);
+        reload(world, engine, held, fresh, fresh.isLightCorrect() ? saved : null);
+
+        assertEquals(List.of(), LightOracle.read("lit while it left", lightFromZero(new TestWorld(0, -16, 64, TestWorld.PALETTE), true), engine));
+    }
+
     private static List<String> reloadedDifferences(long seed, boolean sky) {
         TestWorld world = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
         TestWorld reference = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
