@@ -535,6 +535,18 @@ final class LightWindow {
             return data == null ? -1 : Nibbles.get(data, localIndex(cell));
         }
 
+        int levelAbove(int cell) {
+            int chunkIndex = chunkIndex(cell);
+            for (int section = sectionIndex(cell) + 1; section < LightWindow.this.sections; section++) {
+                byte[] data = this.current[slot(chunkIndex, section)];
+                if (data != null) {
+                    return Nibbles.get(data, localIndex(cell) & COLUMNS - 1);
+                }
+            }
+
+            return enabled(chunkIndex) ? LightEngine.MAX_LEVEL : 0;
+        }
+
         boolean stored(int cell) {
             return this.current[slot(cell)] != null;
         }

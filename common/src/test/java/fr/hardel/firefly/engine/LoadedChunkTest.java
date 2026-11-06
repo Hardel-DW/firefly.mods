@@ -40,6 +40,8 @@ class LoadedChunkTest {
     private static final ChunkPos ISLAND_CHUNK = new ChunkPos(CENTER + 1, CENTER);
     private static final ChunkPos BESIDE = new ChunkPos(CENTER - 1, CENTER);
     private static final BlockPos ISLAND = ISLAND_CHUNK.getMiddleBlockPosition(24);
+    private static final ChunkPos ROOFED = new ChunkPos(4, 3);
+    private static final BlockPos SPECK = new BlockPos(88, 24, 56);
     private static final int RELOADED_WORLDS = 6;
     private static final int RELOADS = 8;
     private static final int EDITS_WHILE_AWAY = 40;
@@ -197,6 +199,22 @@ class LoadedChunkTest {
         assertEquals(List.of(), LightOracle.read("stored before the save is applied", lightFromZero(island(), true), engine));
     }
 
+    @Test
+    void aChunkLoadedAgainKeepsTheSkyItsColumnReceivesThroughEmptySections() {
+        TestWorld world = roof();
+        Held held = new Held();
+        FireflyLightEngine engine = held.create(world, true);
+        world.light(engine, held);
+        ProtoChunk unloaded = world.unload(ROOFED);
+        PendingLight saved = saved(engine, unloaded);
+        engine.unload(unloaded);
+        held.settle(engine);
+
+        reload(world, engine, held, unloaded, saved);
+
+        assertEquals(List.of(), LightOracle.read("loaded again under a roof", lightFromZero(roof(), true), engine));
+    }
+
     private static List<String> reloadedDifferences(long seed, boolean sky) {
         TestWorld world = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
         TestWorld reference = new TestWorld(seed, -16, 64, TestWorld.PALETTE);
@@ -259,6 +277,13 @@ class LoadedChunkTest {
         List<Saved> saves = chunks.stream().map(chunk -> new Saved(chunk, chunk.getPos().equals(ISLAND_CHUNK) ? island : saved(engine, chunk))).toList();
         chunks.forEach(chunk -> world.unload(chunk.getPos()));
         return saves;
+    }
+
+    private static TestWorld roof() {
+        TestWorld world = new TestWorld(0, 0, 128, TestWorld.PALETTE);
+        BlockPos.betweenClosed(0, world.minBlockY(), 0, TestWorld.SIZE * 16 - 1, world.maxBlockY(), TestWorld.SIZE * 16 - 1).forEach(pos -> world.setUnseen(
+            new TestWorld.Edit(pos.immutable(), pos.getY() == 64 && ROOFED.equals(ChunkPos.containing(pos)) || pos.equals(SPECK) ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState())));
+        return world;
     }
 
     private static TestWorld flat() {
