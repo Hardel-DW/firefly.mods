@@ -12,9 +12,11 @@ import fr.hardel.firefly.storage.Nibbles;
 import fr.hardel.firefly.storage.PendingLight;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ChunkMap;
@@ -157,6 +159,13 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         request(pos.x(), pos.z(), work -> work.unload(chunk));
     }
 
+    public void relightChunks(Set<ChunkPos> chunks, Consumer<ChunkPos> chunkLightCallback, IntConsumer onComplete) {
+        chunks.forEach(pos -> relight(pos, chunkLightCallback));
+        submitUnsubmitted();
+        CompletableFuture<?>[] relit = chunks.stream().map(pos -> this.writing.finished(pos.x(), pos.z())).toArray(CompletableFuture[]::new);
+        CompletableFuture.allOf(relit).thenRun(() -> onComplete.accept(relit.length));
+    }
+
     @Override
     public void tryScheduleUpdate() {
         submitUnsubmitted();
@@ -199,6 +208,18 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private @Nullable LightColumn loadedColumn(int chunkX, int chunkZ) {
         LightChunk chunk = this.source.getChunkForLighting(chunkX, chunkZ);
         return chunk == null ? null : ((ChunkLight) chunk).firefly$light();
+    }
+
+    private void relight(ChunkPos pos, Consumer<ChunkPos> chunkLightCallback) {
+        LightChunk chunk = this.source.getChunkForLighting(pos.x(), pos.z());
+        if (chunk == null)
+            return;
+
+        ((ChunkAccess) chunk).initializeLightSources();
+        update(pos.x(), pos.z(), work -> {
+            work.relight();
+            work.onComplete(() -> chunkLightCallback.accept(pos));
+        });
     }
 
     private void request(int chunkX, int chunkZ, Consumer<ChunkWork> change) {

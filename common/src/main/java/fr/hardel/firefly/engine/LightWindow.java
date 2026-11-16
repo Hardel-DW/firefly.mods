@@ -571,6 +571,14 @@ final class LightWindow {
             markChanged(slot);
         }
 
+        void clear(int chunkIndex) {
+            for (int section = 0; section < LightWindow.this.sections; section++) {
+                if (stored(chunkIndex, section)) {
+                    fill(chunkIndex, section, Nibbles.ZERO);
+                }
+            }
+        }
+
         boolean enabled(int chunkIndex) {
             if (this.enabling[chunkIndex] != UNCHANGED)
                 return this.enabling[chunkIndex] == ENABLED;

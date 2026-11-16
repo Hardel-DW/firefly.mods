@@ -14,6 +14,7 @@ public final class ChunkWork {
     private static final int ENABLE = 0;
     private static final int DISABLE = 1;
     private static final int PROPAGATE = 2;
+    private static final int CLEAR = 3;
 
     private final int chunkX;
     private final int chunkZ;
@@ -56,6 +57,12 @@ public final class ChunkWork {
     }
 
     public void reconcile() {
+        this.reconciling = true;
+    }
+
+    public void relight() {
+        this.operations.add(CLEAR);
+        this.operations.add(PROPAGATE);
         this.reconciling = true;
     }
 
@@ -128,6 +135,7 @@ public final class ChunkWork {
             switch (this.operations.getInt(index)) {
                 case ENABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(LightWindow.CENTER, true));
                 case DISABLE -> propagators.forEach(propagator -> propagator.setLightEnabled(LightWindow.CENTER, false));
+                case CLEAR -> propagators.forEach(Propagator::clear);
                 default -> propagators.forEach(Propagator::propagateLightSources);
             }
         }

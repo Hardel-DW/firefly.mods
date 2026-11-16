@@ -5,13 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.util.thread.ConsecutiveExecutor;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import org.junit.jupiter.api.Tag;
@@ -26,12 +31,23 @@ class AxiomTest {
     private static final long[] SEEDS = {0, 1, 3, 5};
     private static final BlockPos MELT_CENTER = new BlockPos(48, 6, 48);
     private static final int MELT_RADIUS = 6;
+    private static final int RELIT_BOXES = 16;
 
     @Test
     void theLightOfAMeltIsRightWhenItsFuturesComplete() throws Exception {
         List<String> differences = new ArrayList<>();
         for (long seed : SEEDS) {
             differences.addAll(meltThroughTheVanillaQueue(seed));
+        }
+
+        assertEquals(List.of(), differences);
+    }
+
+    @Test
+    void chunksRelitFromTheirBlocksLightLikeLightFromZero() {
+        List<String> differences = new ArrayList<>();
+        for (long seed : SEEDS) {
+            differences.addAll(relitBoxes(seed));
         }
 
         assertEquals(List.of(), differences);
@@ -58,6 +74,41 @@ class AxiomTest {
         engine.tryScheduleUpdate();
 
         return read.get(30, TimeUnit.SECONDS);
+    }
+
+    private static List<String> relitBoxes(long seed) {
+        TestWorld world = world(seed);
+        Unordered unordered = new Unordered(seed + 1);
+        FireflyLightEngine engine = unordered.create(world, true);
+        unordered.light(world, engine);
+        LightLog log = new LightLog(engine, TestWorld.SIZE);
+        world.watch(log);
+        RandomSource random = RandomSource.create(~seed);
+        List<TestWorld.Edit> edits = new ArrayList<>();
+        List<String> differences = new ArrayList<>();
+        for (int box = 0; box < RELIT_BOXES; box++) {
+            List<TestWorld.Edit> written = world.randomBox(random);
+            edits.addAll(written);
+            differences.addAll(relight(world, engine, unordered, written, random.nextBoolean()));
+            differences.addAll(log.settle("seed %d, box %d".formatted(seed, box)));
+        }
+
+        differences.addAll(LightOracle.read("seed %d, relit".formatted(seed), lightFromZero(seed, edits), engine));
+        return differences;
+    }
+
+    private static List<String> relight(TestWorld world, FireflyLightEngine engine, Unordered unordered, List<TestWorld.Edit> written, boolean statusFirst) {
+        Set<ChunkPos> chunks = new AxiomBuffer(world, engine, false).write(written).keySet().stream().map(SectionPos::chunk).collect(Collectors.toSet());
+        if (statusFirst) {
+            unordered.settle(engine);
+        }
+
+        Set<ChunkPos> relit = new HashSet<>();
+        List<Integer> completed = new ArrayList<>();
+        engine.relightChunks(chunks, relit::add, completed::add);
+        unordered.settle(engine);
+        boolean called = relit.equals(chunks) && completed.equals(List.of(chunks.size()));
+        return called ? List.of() : List.of("relit %s and completed %s instead of %s".formatted(relit, completed, chunks));
     }
 
     private static List<TestWorld.Edit> melt(TestWorld world) {

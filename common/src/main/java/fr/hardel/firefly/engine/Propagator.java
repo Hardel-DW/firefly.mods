@@ -35,6 +35,10 @@ abstract class Propagator {
         this.checks.add(cell);
     }
 
+    void clear() {
+        this.layer.clear(LightWindow.CENTER);
+    }
+
     void reconcileFaces(int chunkIndex) {
         for (Direction direction : HORIZONTALS) {
             int neighbor = LightWindow.neighborChunk(chunkIndex, direction);
