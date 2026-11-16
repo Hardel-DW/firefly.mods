@@ -140,7 +140,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
-        submit(takeUnsubmitted());
+        submitUnsubmitted();
         return this.writing.finished(chunkX, chunkZ);
     }
 
@@ -151,8 +151,12 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
 
     @Override
     public void tryScheduleUpdate() {
-        submit(takeUnsubmitted());
+        submitUnsubmitted();
         super.tryScheduleUpdate();
+    }
+
+    public void submitUnsubmitted() {
+        submit(takeUnsubmitted());
     }
 
     @Override

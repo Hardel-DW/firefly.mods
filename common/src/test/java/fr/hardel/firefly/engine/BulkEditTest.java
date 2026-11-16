@@ -88,9 +88,24 @@ class BulkEditTest {
         }
 
         held.settle(engine);
-        held.settle(engine);
 
         assertEquals(List.of(), LightOracle.read("from a vanilla task", lightFromZero(), engine));
+    }
+
+    @Test
+    void aCheckFromAVanillaTaskIsSubmittedByTheRunOfItsQueue() throws ReflectiveOperationException {
+        TestWorld world = world();
+        Held held = new Held();
+        ConsecutiveExecutor light = VanillaQueue.executor();
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
+        world.light(engine, held);
+        VanillaParent parent = new VanillaParent(engine);
+        BlockPos pos = new BlockPos(LOW, 0, LOW);
+
+        new VanillaQueue().addPreUpdate(engine, LOW >> 4, LOW >> 4, () -> parent.call("checkBlock", void.class, List.of(BlockPos.class), pos));
+        engine.tryScheduleUpdate();
+
+        assertEquals(1, held.waiting());
     }
 
     @Test

@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(LevelLightEngine.class)
 public abstract class LevelLightEngineMixin {
@@ -20,6 +21,14 @@ public abstract class LevelLightEngineMixin {
         if ((Object) this instanceof FireflyLightEngine engine) {
             engine.checkBlock(pos);
             callback.cancel();
+        }
+    }
+
+    @Inject(method = "runLightUpdates", at = @At("HEAD"), cancellable = true)
+    private void firefly$runLightUpdates(CallbackInfoReturnable<Integer> callback) {
+        if ((Object) this instanceof FireflyLightEngine engine) {
+            engine.submitUnsubmitted();
+            callback.setReturnValue(0);
         }
     }
 
