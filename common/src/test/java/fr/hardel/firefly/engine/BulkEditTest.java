@@ -211,7 +211,7 @@ class BulkEditTest {
         RandomSource random = RandomSource.create(seed * 31 + RANDOM_MIN_Y);
         List<TestWorld.Edit> edits = new ArrayList<>();
         for (int round = 0; round < RANDOM_ROUNDS; round++) {
-            List<TestWorld.Edit> box = randomBox(random, world);
+            List<TestWorld.Edit> box = world.randomBox(random);
             edits.addAll(box);
             box.forEach(world::set);
             unordered.settle(engine);
@@ -222,19 +222,6 @@ class BulkEditTest {
         LevelLightEngine fromZero = LightOracle.VANILLA.create(reference, true);
         reference.light(fromZero, LightOracle.VANILLA);
         return LightOracle.read("seed %d".formatted(seed), fromZero, engine);
-    }
-
-    private static List<TestWorld.Edit> randomBox(RandomSource random, TestWorld world) {
-        int chunkX = random.nextInt(TestWorld.SIZE - 2);
-        int chunkZ = random.nextInt(TestWorld.SIZE - 2);
-        int sectionY = RANDOM_MIN_Y + 16 * random.nextInt(RANDOM_HEIGHT / 16);
-        BlockState state = random.nextInt(3) == 0 ? TestWorld.PALETTE.get(random.nextInt(TestWorld.PALETTE.size())) : Blocks.AIR.defaultBlockState();
-        int maxX = chunkX * 16 + 16 * (1 + random.nextInt(3)) - 1;
-        int maxY = Math.min(sectionY + 16 * (1 + random.nextInt(2)) - 1, world.maxBlockY());
-        int maxZ = chunkZ * 16 + 16 * (1 + random.nextInt(3)) - 1;
-        List<TestWorld.Edit> box = new ArrayList<>();
-        BlockPos.betweenClosed(chunkX * 16, sectionY, chunkZ * 16, maxX, maxY, maxZ).forEach(pos -> box.add(new TestWorld.Edit(pos.immutable(), state)));
-        return box;
     }
 
     private static void cutAndPaste(TestWorld world, LevelLightEngine engine, Consumer<BlockPos> check) {

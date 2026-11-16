@@ -239,6 +239,17 @@ final class TestWorld implements LightChunkGetter, BlockGetter {
         return new Edit(pos, palette.get(random.nextInt(palette.size())));
     }
 
+    List<Edit> randomBox(RandomSource random) {
+        int chunkX = random.nextInt(SIZE - 2);
+        int chunkZ = random.nextInt(SIZE - 2);
+        int sectionY = getMinY() + 16 * random.nextInt(getHeight() / 16);
+        BlockState state = random.nextInt(3) == 0 ? this.palette.get(random.nextInt(this.palette.size())) : Blocks.AIR.defaultBlockState();
+        int maxX = chunkX * 16 + 16 * (1 + random.nextInt(3)) - 1;
+        int maxY = Math.min(sectionY + 16 * (1 + random.nextInt(2)) - 1, maxBlockY());
+        int maxZ = chunkZ * 16 + 16 * (1 + random.nextInt(3)) - 1;
+        return BlockPos.betweenClosedStream(chunkX * 16, sectionY, chunkZ * 16, maxX, maxY, maxZ).map(pos -> new Edit(pos.immutable(), state)).toList();
+    }
+
     private boolean inside(BlockPos pos) {
         return pos.getX() >= 0 && pos.getZ() >= 0 && pos.getX() < SIZE * 16 && pos.getZ() < SIZE * 16 && !this.height.isOutsideBuildHeight(pos);
     }
