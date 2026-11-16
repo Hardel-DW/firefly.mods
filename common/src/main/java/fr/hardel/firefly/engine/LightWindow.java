@@ -21,6 +21,7 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine;
 import org.jspecify.annotations.Nullable;
 
 final class LightWindow {
@@ -60,6 +61,7 @@ final class LightWindow {
     private final IntArrayList initialized = new IntArrayList();
     private final @Nullable Boolean[] initializations = new Boolean[CHUNKS * CHUNKS];
     private boolean savedApplied;
+    private boolean leaving;
     private int chunkX;
     private int chunkZ;
     private int originX;
@@ -84,14 +86,15 @@ final class LightWindow {
         this.sky = hasSky ? new Layer(LightLayer.SKY) : null;
     }
 
-    void open(int chunkX, int chunkZ) {
+    void open(int chunkX, int chunkZ, @Nullable LightChunk lit) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
         this.originX = SectionPos.sectionToBlockCoord(chunkX - RADIUS);
         this.originZ = SectionPos.sectionToBlockCoord(chunkZ - RADIUS);
         for (int dx = 0; dx < CHUNKS; dx++) {
             for (int dz = 0; dz < CHUNKS; dz++) {
-                LightChunk chunk = this.source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk visible = this.source.getChunkForLighting(chunkX - RADIUS + dx, chunkZ - RADIUS + dz);
+                LightChunk chunk = visible == null && dx * CHUNKS + dz == CENTER ? lit : visible;
                 this.chunks[dx * CHUNKS + dz] = chunk;
                 openBlocks(dx * CHUNKS + dz, chunk == null ? null : ((ChunkAccess) chunk).getSections());
             }
@@ -236,6 +239,7 @@ final class LightWindow {
     }
 
     void refreshStorage(boolean centerLeaving) {
+        this.leaving = centerLeaving;
         for (int chunkIndex = 0; chunkIndex < CHUNKS * CHUNKS; chunkIndex++) {
             readNonEmpty(chunkIndex, centerLeaving && chunkIndex == CENTER);
         }
@@ -317,6 +321,7 @@ final class LightWindow {
         this.initialized.clear();
         Arrays.fill(this.initializations, null);
         this.savedApplied = false;
+        this.leaving = false;
         this.block.close();
         if (this.sky != null) {
             this.sky.close();
@@ -518,6 +523,18 @@ final class LightWindow {
             return data == null ? -1 : Nibbles.get(data, localIndex(cell));
         }
 
+        int levelAbove(int cell) {
+            int chunkIndex = chunkIndex(cell);
+            for (int section = sectionIndex(cell) + 1; section < LightWindow.this.sections; section++) {
+                byte[] data = this.current[slot(chunkIndex, section)];
+                if (data != null) {
+                    return Nibbles.get(data, localIndex(cell) & COLUMNS - 1);
+                }
+            }
+
+            return enabled(chunkIndex) ? LightEngine.MAX_LEVEL : 0;
+        }
+
         boolean stored(int cell) {
             return this.current[slot(cell)] != null;
         }
@@ -579,13 +596,43 @@ final class LightWindow {
         void finish() {
             for (int slot = 0; slot < this.removing.length; slot++) {
                 if (this.removing[slot]) {
-                    remove(slot);
+                    removeOrKeep(slot);
                 }
             }
 
             for (int chunkIndex : WRITTEN) {
                 applyQueued(chunkIndex);
             }
+        }
+
+        private void removeOrKeep(int slot) {
+            boolean leavingWithItsChunk = LightWindow.this.leaving && chunkOfSlot(slot) == CENTER;
+            if (!leavingWithItsChunk && awaitsItsChecks(slot)) {
+                this.removing[slot] = false;
+                return;
+            }
+
+            remove(slot);
+        }
+
+        private boolean awaitsItsChecks(int slot) {
+            if (this.type == LightLayer.BLOCK)
+                return Nibbles.canonical(this.current[slot]) != Nibbles.ZERO;
+
+            return enabled(chunkOfSlot(slot)) && differsFromItsSources(chunkOfSlot(slot), sectionOfSlot(slot), this.current[slot]);
+        }
+
+        private boolean differsFromItsSources(int chunkIndex, int section, byte[] data) {
+            ChunkSkyLightSources sources = sourcesOrEmpty(chunkIndex);
+            int bottomY = sectionBottomY(section);
+            for (int index = 0; index < COLUMNS * 16; index++) {
+                boolean source = bottomY + (index >> 8) >= sources.getLowestSourceY(index & 15, index >> 4 & 15);
+                if (source != (Nibbles.get(data, index) == LightEngine.MAX_LEVEL)) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void remove(int slot) {

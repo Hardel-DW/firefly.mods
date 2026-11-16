@@ -24,6 +24,7 @@ public final class ChunkWork {
     private final CompletableFuture<Void> finished = new CompletableFuture<>();
     private boolean reconciling;
     private @Nullable LightChunk unloaded;
+    private @Nullable LightChunk lit;
 
     public ChunkWork(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
@@ -56,6 +57,14 @@ public final class ChunkWork {
 
     public void reconcile() {
         this.reconciling = true;
+    }
+
+    public void lights(LightChunk chunk) {
+        this.lit = chunk;
+    }
+
+    @Nullable LightChunk lit() {
+        return this.lit;
     }
 
     public void unload(LightChunk chunk) {

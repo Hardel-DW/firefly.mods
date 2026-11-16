@@ -18,7 +18,9 @@ public final class PendingLight {
     }
 
     public synchronized void put(LightLayer layer, int section, byte @Nullable [] data) {
-        data(layer)[section] = data;
+        if (section >= 0 && section < this.block.length) {
+            data(layer)[section] = data;
+        }
     }
 
     public synchronized void remove(LightLayer layer, int section, byte[] data) {

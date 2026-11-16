@@ -16,7 +16,6 @@ abstract class Propagator {
     protected static final Direction[] DIRECTIONS = Direction.values();
     private static final Direction[] OPPOSITES = Arrays.stream(DIRECTIONS).map(Direction::getOpposite).toArray(Direction[]::new);
     private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
-    private static final int UNKNOWN = -1;
 
     protected final LightWindow window;
     protected final LightWindow.Layer layer;
@@ -149,7 +148,7 @@ abstract class Propagator {
             return;
 
         int expected = expectedLevel(cell);
-        if (expected == UNKNOWN || expected < level) {
+        if (expected < level) {
             this.rechecks.add(cell);
             return;
         }
@@ -167,8 +166,6 @@ abstract class Propagator {
 
         for (Direction direction : DIRECTIONS) {
             expected = expectedThrough(cell, state, direction, expected);
-            if (expected == UNKNOWN)
-                return UNKNOWN;
         }
 
         return expected;
@@ -178,7 +175,7 @@ abstract class Propagator {
         int from = this.window.neighbor(cell, direction);
         int fromLevel = this.layer.level(from);
         if (fromLevel < 0)
-            return this.readsThroughUnstored ? UNKNOWN : expected;
+            return this.readsThroughUnstored ? Math.max(expected, this.layer.levelAbove(from) - 1) : expected;
 
         int level = fromLevel - opacity(state);
         return level > expected && !occludes(this.window.state(from), state, opposite(direction)) ? level : expected;
@@ -259,7 +256,8 @@ abstract class Propagator {
             return;
         }
 
-        int toEmission = decreasedEmission(to);
+        int emission = decreasedEmission(to);
+        int toEmission = emission > toLevel ? 0 : emission;
         this.layer.set(to, 0);
         if (toEmission < toLevel) {
             decrease(to, QueueEntry.decreaseSkipOneDirection(toLevel, opposite(direction)));

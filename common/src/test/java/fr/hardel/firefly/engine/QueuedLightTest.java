@@ -3,6 +3,7 @@ package fr.hardel.firefly.engine;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
@@ -68,6 +69,20 @@ class QueuedLightTest {
         engine.lightChunk(chunk, true).join();
 
         assertArrayEquals(seen, read.getData());
+    }
+
+    @Test
+    void lightSavedOutsideTheHeightOfTheWorldIsLeftOut() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        FireflyLightEngine engine = new Held().create(world, true);
+        SectionPos below = SectionPos.of(CENTER, engine.getMinLightSection() - 1, CENTER);
+        SectionPos above = SectionPos.of(CENTER, engine.getMaxLightSection(), CENTER);
+
+        engine.queueSectionData(LightLayer.BLOCK, below, new DataLayer(SAVED_BLOCK));
+        engine.queueSectionData(LightLayer.SKY, above, new DataLayer(SAVED_SKY));
+
+        assertNull(engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(below));
+        assertNull(engine.getLayerListener(LightLayer.SKY).getDataLayerData(above));
     }
 
     private static final class SkyWatcher implements LightChunkGetter {
