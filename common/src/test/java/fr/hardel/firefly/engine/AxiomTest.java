@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -34,7 +33,7 @@ class AxiomTest {
     private static final int RELIT_BOXES = 16;
 
     @Test
-    void theLightOfAMeltIsRightWhenItsFuturesComplete() throws Exception {
+    void theLightOfAMeltIsRightWhenItsFuturesComplete() throws ReflectiveOperationException {
         List<String> differences = new ArrayList<>();
         for (long seed : SEEDS) {
             differences.addAll(meltThroughTheVanillaQueue(seed));
@@ -53,11 +52,12 @@ class AxiomTest {
         assertEquals(List.of(), differences);
     }
 
-    private static List<String> meltThroughTheVanillaQueue(long seed) throws Exception {
+    private static List<String> meltThroughTheVanillaQueue(long seed) throws ReflectiveOperationException {
         TestWorld world = world(seed);
         ConsecutiveExecutor light = VanillaQueue.executor();
-        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, Parallel.EXECUTOR);
-        new Parallel(LightEmission.VANILLA).light(world, engine);
+        Held held = new Held();
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
+        world.light(engine, held);
         List<TestWorld.Edit> edits = melt(world);
         Map<SectionPos, List<BlockPos>> changed = new AxiomBuffer(world, engine, true).write(edits);
         LevelLightEngine fromZero = lightFromZero(seed, edits);
@@ -72,8 +72,9 @@ class AxiomTest {
         CompletableFuture<List<String>> read = CompletableFuture.allOf(waited)
             .thenApply(_ -> LightOracle.read("seed %d, when the futures of the melt complete".formatted(seed), fromZero, engine));
         engine.tryScheduleUpdate();
+        held.runUntil(read::isDone);
 
-        return read.get(30, TimeUnit.SECONDS);
+        return read.join();
     }
 
     private static List<String> relitBoxes(long seed) {
