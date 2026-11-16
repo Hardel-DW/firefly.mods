@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import java.lang.reflect.Field;
+import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
@@ -76,7 +78,7 @@ class GenerationLightTest {
         set(WorldGenRegion.class, region, "level", level);
         set(WorldGenRegion.class, region, "center", center);
         set(WorldGenRegion.class, region, "generatingStep", ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES));
-        set(WorldGenRegion.class, region, "cache", StaticCache2D.<LightChunk>create(GENERATING.x(), GENERATING.z(), 1, world::getChunkForLighting));
+        set(WorldGenRegion.class, region, "cache", StaticCache2D.<GenerationChunkHolder>create(GENERATING.x(), GENERATING.z(), 1, (x, z) -> new Present(new ChunkPos(x, z), (ChunkAccess) world.getChunkForLighting(x, z))));
         return region;
     }
 
@@ -90,6 +92,34 @@ class GenerationLightTest {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static final class Present extends GenerationChunkHolder {
+        private final @Nullable ChunkAccess chunk;
+
+        private Present(ChunkPos pos, @Nullable ChunkAccess chunk) {
+            super(pos);
+            this.chunk = chunk;
+        }
+
+        @Override
+        public @Nullable ChunkAccess getChunkIfPresentUnchecked(ChunkStatus status) {
+            return this.chunk;
+        }
+
+        @Override
+        protected void addSaveDependency(CompletableFuture<?> future) {
+        }
+
+        @Override
+        public int getTicketLevel() {
+            return 0;
+        }
+
+        @Override
+        public int getQueueLevel() {
+            return 0;
+        }
     }
 
     private record Hiding(LightChunkGetter world) implements LightChunkGetter {
