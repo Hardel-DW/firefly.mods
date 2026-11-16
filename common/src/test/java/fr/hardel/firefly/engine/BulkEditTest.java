@@ -9,15 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.storage.ChunkLight;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.thread.ConsecutiveExecutor;
 import net.minecraft.world.level.ChunkPos;
@@ -83,7 +79,7 @@ class BulkEditTest {
         FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
         world.light(engine, held);
         VanillaQueue queue = new VanillaQueue();
-        Parent parent = new Parent(engine);
+        VanillaParent parent = new VanillaParent(engine);
         List<BlockPos> changed = new ArrayList<>();
 
         cutAndPaste(world, engine, changed::add);
@@ -119,7 +115,7 @@ class BulkEditTest {
         assertNull(engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(SectionPos.of(stone)));
         world.setUnseen(new TestWorld.Edit(stone, Blocks.STONE.defaultBlockState()));
 
-        new Parent(engine).call("updateSectionStatus", void.class, List.of(SectionPos.class, boolean.class), SectionPos.of(stone), false);
+        new VanillaParent(engine).call("updateSectionStatus", void.class, List.of(SectionPos.class, boolean.class), SectionPos.of(stone), false);
         held.settle(engine);
 
         assertNotNull(engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(SectionPos.of(stone)));
@@ -133,7 +129,7 @@ class BulkEditTest {
         world.light(engine, held);
         ChunkPos chunk = new ChunkPos(LOW >> 4, LOW >> 4);
 
-        new Parent(engine).call("setLightEnabled", void.class, List.of(ChunkPos.class, boolean.class), chunk, false);
+        new VanillaParent(engine).call("setLightEnabled", void.class, List.of(ChunkPos.class, boolean.class), chunk, false);
         held.settle(engine);
 
         assertFalse(engine.lightOnInColumn(SectionPos.asLong(chunk.x(), 0, chunk.z())));
@@ -150,7 +146,7 @@ class BulkEditTest {
         engine.updateSectionStatus(glowstone, false);
         held.settle(engine);
 
-        new Parent(engine).call("propagateLightSources", void.class, List.of(ChunkPos.class), chunk.getPos());
+        new VanillaParent(engine).call("propagateLightSources", void.class, List.of(ChunkPos.class), chunk.getPos());
         held.settle(engine);
 
         assertEquals(Blocks.GLOWSTONE.defaultBlockState().getLightEmission(), engine.getLayerListener(LightLayer.BLOCK).getLightValue(glowstone));
@@ -162,7 +158,7 @@ class BulkEditTest {
         BlockPos pos = new BlockPos(LOW, 0, LOW);
         ProtoChunk chunk = world.chunk(pos);
         FireflyLightEngine engine = new Held().create(world, true);
-        Parent parent = new Parent(engine);
+        VanillaParent parent = new VanillaParent(engine);
 
         parent.call("retainData", void.class, List.of(ChunkPos.class, boolean.class), chunk.getPos(), true);
         parent.call("queueSectionData", void.class, List.of(LightLayer.class, SectionPos.class, DataLayer.class), LightLayer.BLOCK, SectionPos.of(pos), new DataLayer(QUEUED));
@@ -243,21 +239,5 @@ class BulkEditTest {
 
     private static TestWorld world() {
         return new TestWorld(0, MIN_Y, HEIGHT, TestWorld.PALETTE);
-    }
-
-    private record Parent(FireflyLightEngine engine) {
-        private void call(String method, Class<?> result, List<Class<?>> parameters, Object... arguments) {
-            try {
-                handle(method, result, parameters).invokeWithArguments(arguments);
-            } catch (Throwable failure) {
-                throw new AssertionError(failure);
-            }
-        }
-
-        private MethodHandle handle(String method, Class<?> result, List<Class<?>> parameters) throws ReflectiveOperationException {
-            return MethodHandles.privateLookupIn(ThreadedLevelLightEngine.class, MethodHandles.lookup())
-                .findSpecial(LevelLightEngine.class, method, MethodType.methodType(result, parameters), ThreadedLevelLightEngine.class)
-                .bindTo(this.engine);
-        }
     }
 }
