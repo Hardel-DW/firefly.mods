@@ -39,15 +39,18 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     private final LightReader block;
     private final @Nullable LightReader sky;
     private final LightExecutor executor;
+    private final ConsecutiveExecutor vanillaQueue;
     private final Long2ObjectLinkedOpenHashMap<ChunkWork> unsubmitted = new Long2ObjectLinkedOpenHashMap<>();
     private final WritingWorks writing = new WritingWorks();
     private final AtomicInteger outstanding = new AtomicInteger();
+    private CompletableFuture<?> lastPostUpdate = CompletableFuture.completedFuture(null);
 
     public FireflyLightEngine(LightChunkGetter source, ChunkMap chunkMap, boolean hasSkyLight, ConsecutiveExecutor consecutiveExecutor, ChunkTaskDispatcher dispatcher,
         LightEmission emission, LightExecutor executor) {
         super(source, chunkMap, hasSkyLight, consecutiveExecutor, dispatcher);
         this.source = source;
         this.executor = executor;
+        this.vanillaQueue = consecutiveExecutor;
         int minSection = getMinLightSection();
         this.light = new LevelLight(source, emission, hasSkyLight, minSection, getLightSectionCount());
         this.block = new LightReader(this, source, LightLayer.BLOCK, minSection);
@@ -142,6 +145,11 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     public CompletableFuture<?> waitForPendingTasks(int chunkX, int chunkZ) {
         submitUnsubmitted();
         return this.writing.finished(chunkX, chunkZ);
+    }
+
+    public void postUpdate(int chunkX, int chunkZ, Runnable task) {
+        CompletableFuture<?> lit = waitForPendingTasks(chunkX, chunkZ);
+        this.lastPostUpdate = CompletableFuture.allOf(this.lastPostUpdate, lit).thenRun(() -> this.vanillaQueue.schedule(task));
     }
 
     public void unload(ChunkAccess chunk) {

@@ -2,6 +2,7 @@ package fr.hardel.firefly.engine;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.IntSupplier;
 import net.minecraft.server.level.ChunkTaskDispatcher;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
@@ -34,6 +35,10 @@ final class VanillaQueue {
 
     void addPostUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Runnable task) {
         add(engine, chunkX, chunkZ, this.postUpdate, task);
+    }
+
+    CompletableFuture<Void> waitForPostUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ) {
+        return CompletableFuture.runAsync(() -> {}, task -> addPostUpdate(engine, chunkX, chunkZ, task));
     }
 
     private void add(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Object type, Runnable task) {

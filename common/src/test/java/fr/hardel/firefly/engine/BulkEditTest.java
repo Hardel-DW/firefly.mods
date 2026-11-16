@@ -109,6 +109,27 @@ class BulkEditTest {
     }
 
     @Test
+    void postUpdatesWaitForTheLightAndKeepTheirOrder() throws ReflectiveOperationException {
+        TestWorld world = world();
+        Held held = new Held();
+        ConsecutiveExecutor light = VanillaQueue.executor();
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
+        world.light(engine, held);
+        VanillaQueue queue = new VanillaQueue();
+        List<String> ran = new ArrayList<>();
+
+        engine.checkBlock(new BlockPos(LOW, 0, LOW));
+        queue.addPostUpdate(engine, LOW >> 4, LOW >> 4, () -> ran.add("checked chunk"));
+        queue.addPostUpdate(engine, TestWorld.SIZE - 1, TestWorld.SIZE - 1, () -> ran.add("idle chunk"));
+        engine.tryScheduleUpdate();
+        List<String> ranBeforeTheLight = List.copyOf(ran);
+        held.runUntil(() -> held.waiting() == 0);
+
+        assertEquals(List.of(), ranBeforeTheLight);
+        assertEquals(List.of("checked chunk", "idle chunk"), ran);
+    }
+
+    @Test
     void randomBoxesInTheWrongOrderLightLikeLightFromZero() {
         List<String> differences = new ArrayList<>();
         for (long seed : RANDOM_SEEDS) {

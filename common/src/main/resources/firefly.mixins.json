@@ -11,6 +11,7 @@
 		"LevelLightEngineMixin",
 		"ProtoChunkMixin",
 		"SerializableChunkDataMixin",
+		"ThreadedLevelLightEngineMixin",
 		"WorldGenRegionMixin"
 	],
 	"injectors": {
