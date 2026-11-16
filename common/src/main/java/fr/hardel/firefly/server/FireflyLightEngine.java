@@ -238,20 +238,20 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
     }
 
     private void run(ChunkWork work, LightBatch batch) {
-        RuntimeException failure = lightOrFailure(work, batch);
+        Throwable failure = lightOrFailure(work, batch);
         batch.finish(this.source);
         this.writing.remove(work);
         work.complete(failure);
         this.outstanding.decrementAndGet();
     }
 
-    private @Nullable RuntimeException lightOrFailure(ChunkWork work, LightBatch batch) {
+    private @Nullable Throwable lightOrFailure(ChunkWork work, LightBatch batch) {
         try {
             this.light.run(work, batch);
             return null;
-        } catch (RuntimeException exception) {
-            Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), exception);
-            return exception;
+        } catch (Throwable failure) {
+            Firefly.LOGGER.error("Firefly failed to light chunk [{}, {}]", work.chunkX(), work.chunkZ(), failure);
+            return failure;
         }
     }
 }
