@@ -5,18 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.IntSupplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.minecraft.core.SectionPos;
-import net.minecraft.server.level.ChunkTaskDispatcher;
-import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.thread.ConsecutiveExecutor;
 import net.minecraft.world.level.ChunkPos;
@@ -42,18 +37,12 @@ class FlashbackTest {
 
     @Test
     void aTaskAddedToTheVanillaQueueRuns() throws ReflectiveOperationException {
-        ConsecutiveExecutor light = new ConsecutiveExecutor(Runnable::run, "light");
+        ConsecutiveExecutor light = VanillaQueue.executor();
         TestWorld world = new TestWorld(SEED, MIN_Y, HEIGHT, TestWorld.PALETTE);
-        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, new ChunkTaskDispatcher(light, Runnable::run), LightEmission.VANILLA,
-            Parallel.EXECUTOR);
-        Class<?> taskType = Class.forName("net.minecraft.server.level.ThreadedLevelLightEngine$TaskType");
-        Field postUpdate = taskType.getDeclaredField("POST_UPDATE");
-        Method addTask = ThreadedLevelLightEngine.class.getDeclaredMethod("addTask", int.class, int.class, IntSupplier.class, taskType, Runnable.class);
-        postUpdate.setAccessible(true);
-        addTask.setAccessible(true);
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, Parallel.EXECUTOR);
         CompletableFuture<Void> ran = new CompletableFuture<>();
 
-        addTask.invoke(engine, 0, 0, (IntSupplier) () -> 0, postUpdate.get(null), (Runnable) () -> ran.complete(null));
+        new VanillaQueue().addPostUpdate(engine, 0, 0, () -> ran.complete(null));
         engine.tryScheduleUpdate();
 
         assertTrue(ran.isDone());

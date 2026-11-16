@@ -26,7 +26,7 @@ public final class LevelLight {
 
     public void run(ChunkWork work, LightBatch batch) {
         Workspace workspace = take();
-        workspace.window.open(work.chunkX(), work.chunkZ());
+        workspace.window.open(work.chunkX(), work.chunkZ(), work.lit());
         work.run(workspace.window, workspace.propagators);
         workspace.window.publish(batch);
         workspace.window.close();

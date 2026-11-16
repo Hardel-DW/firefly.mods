@@ -123,6 +123,7 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         boolean reconciling = ((ChunkLight) chunk).firefly$light().takeReconciliation();
         chunk.setLightCorrect(false);
         request(pos.x(), pos.z(), work -> {
+            work.lights(chunk);
             if (!lighted) {
                 work.propagateLightSources();
             }
