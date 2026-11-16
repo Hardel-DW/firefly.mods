@@ -3,6 +3,8 @@
 	"package": "fr.hardel.firefly.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
+		"AxiomMixin",
+		"AxiomStarlightHelperMixin",
 		"ChunkAccessMixin",
 		"ChunkMapMixin",
 		"ChunkStatusTasksMixin",
