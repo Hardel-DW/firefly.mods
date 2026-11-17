@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.storage.Nibbles;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -32,6 +34,10 @@ class FireflyLightEngineTest {
     private static final IllegalStateException FAILURE = new IllegalStateException("emission failed");
     private static final LightEmission FAILING = (_, _, _) -> {
         throw FAILURE;
+    };
+    private static final StackOverflowError ERROR = new StackOverflowError("emission overflowed");
+    private static final LightEmission OVERFLOWING = (_, _, _) -> {
+        throw ERROR;
     };
     private static final LightEmission ONE_LEVEL_LOW = (state, _, _) -> Math.max(0, state.getLightEmission() - 1);
     private static final LightOracle.Worlds TALLEST = new LightOracle.Worlds(2, 1, List.of(new LightOracle.Height(DimensionType.MIN_Y, DimensionType.Y_SIZE)), TestWorld.PALETTE);
@@ -91,6 +97,24 @@ class FireflyLightEngineTest {
 
         ExecutionException failure = assertThrows(ExecutionException.class, () -> lit.get(10, TimeUnit.SECONDS));
         assertSame(FAILURE, failure.getCause());
+    }
+
+    @Test
+    void aChunkThatThrowsAnErrorFailsItsFuturesAndLeavesNoLightWork() {
+        TestWorld world = new TestWorld(0, -16, 64, TestWorld.PALETTE);
+        BlockPos glowstone = new BlockPos(CENTER * 16, 0, CENTER * 16);
+        world.set(new TestWorld.Edit(glowstone, Blocks.GLOWSTONE.defaultBlockState()));
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, null, null, OVERFLOWING, Parallel.EXECUTOR);
+
+        CompletableFuture<?> lit = engine.lightChunk(world.chunk(glowstone), false);
+
+        ExecutionException failure = assertThrows(ExecutionException.class, () -> lit.get(10, TimeUnit.SECONDS));
+        assertSame(ERROR, failure.getCause());
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+            while (engine.hasLightWork()) {
+                Thread.onSpinWait();
+            }
+        });
     }
 
     @Test

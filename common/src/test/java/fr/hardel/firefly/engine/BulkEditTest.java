@@ -9,26 +9,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import fr.hardel.firefly.MinecraftBootstrap;
 import fr.hardel.firefly.server.FireflyLightEngine;
 import fr.hardel.firefly.storage.ChunkLight;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.thread.ConsecutiveExecutor;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.DataLayer;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.lighting.LevelLightEngine;
-import net.minecraft.world.level.lighting.LightEngine;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,7 +49,7 @@ class BulkEditTest {
         LevelLightEngine engine = LightOracle.VANILLA.create(world, true);
         world.light(engine, LightOracle.VANILLA);
 
-        cutAndPaste(world, engine, engine::checkBlock);
+        cutAndPaste(world, engine).forEach(engine::checkBlock);
         engine.runLightUpdates();
 
         assertEquals(List.of(), LightOracle.read("vanilla", lightFromZero(), engine));
@@ -69,7 +62,7 @@ class BulkEditTest {
         FireflyLightEngine engine = held.create(world, true);
         world.light(engine, held);
 
-        cutAndPaste(world, engine, engine::checkBlock);
+        cutAndPaste(world, engine).forEach(engine::checkBlock);
         held.settle(engine);
 
         assertEquals(List.of(), LightOracle.read("through the engine", lightFromZero(), engine));
@@ -83,18 +76,52 @@ class BulkEditTest {
         FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
         world.light(engine, held);
         VanillaQueue queue = new VanillaQueue();
-        Parent parent = new Parent(engine);
-        List<BlockPos> changed = new ArrayList<>();
+        VanillaParent parent = new VanillaParent(engine);
 
-        cutAndPaste(world, engine, changed::add);
-        for (BlockPos pos : changed) {
+        for (BlockPos pos : cutAndPaste(world, engine)) {
             queue.addPreUpdate(engine, pos.getX() >> 4, pos.getZ() >> 4, () -> parent.call("checkBlock", void.class, List.of(BlockPos.class), pos));
         }
 
         held.settle(engine);
-        held.settle(engine);
 
         assertEquals(List.of(), LightOracle.read("from a vanilla task", lightFromZero(), engine));
+    }
+
+    @Test
+    void aCheckFromAVanillaTaskIsSubmittedByTheRunOfItsQueue() throws ReflectiveOperationException {
+        TestWorld world = world();
+        Held held = new Held();
+        ConsecutiveExecutor light = VanillaQueue.executor();
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
+        world.light(engine, held);
+        VanillaParent parent = new VanillaParent(engine);
+        BlockPos pos = new BlockPos(LOW, 0, LOW);
+
+        new VanillaQueue().addPreUpdate(engine, LOW >> 4, LOW >> 4, () -> parent.call("checkBlock", void.class, List.of(BlockPos.class), pos));
+        engine.tryScheduleUpdate();
+
+        assertEquals(1, held.waiting());
+    }
+
+    @Test
+    void postUpdatesWaitForTheLightAndKeepTheirOrder() throws ReflectiveOperationException {
+        TestWorld world = world();
+        Held held = new Held();
+        ConsecutiveExecutor light = VanillaQueue.executor();
+        FireflyLightEngine engine = new FireflyLightEngine(world, null, true, light, VanillaQueue.dispatcher(light), LightEmission.VANILLA, held);
+        world.light(engine, held);
+        VanillaQueue queue = new VanillaQueue();
+        List<String> ran = new ArrayList<>();
+
+        engine.checkBlock(new BlockPos(LOW, 0, LOW));
+        queue.addPostUpdate(engine, LOW >> 4, LOW >> 4, () -> ran.add("checked chunk"));
+        queue.addPostUpdate(engine, TestWorld.SIZE - 1, TestWorld.SIZE - 1, () -> ran.add("idle chunk"));
+        engine.tryScheduleUpdate();
+        List<String> ranBeforeTheLight = List.copyOf(ran);
+        held.runUntil(() -> held.waiting() == 0);
+
+        assertEquals(List.of(), ranBeforeTheLight);
+        assertEquals(List.of("checked chunk", "idle chunk"), ran);
     }
 
     @Test
@@ -119,7 +146,7 @@ class BulkEditTest {
         assertNull(engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(SectionPos.of(stone)));
         world.setUnseen(new TestWorld.Edit(stone, Blocks.STONE.defaultBlockState()));
 
-        new Parent(engine).call("updateSectionStatus", void.class, List.of(SectionPos.class, boolean.class), SectionPos.of(stone), false);
+        new VanillaParent(engine).call("updateSectionStatus", void.class, List.of(SectionPos.class, boolean.class), SectionPos.of(stone), false);
         held.settle(engine);
 
         assertNotNull(engine.getLayerListener(LightLayer.BLOCK).getDataLayerData(SectionPos.of(stone)));
@@ -133,7 +160,7 @@ class BulkEditTest {
         world.light(engine, held);
         ChunkPos chunk = new ChunkPos(LOW >> 4, LOW >> 4);
 
-        new Parent(engine).call("setLightEnabled", void.class, List.of(ChunkPos.class, boolean.class), chunk, false);
+        new VanillaParent(engine).call("setLightEnabled", void.class, List.of(ChunkPos.class, boolean.class), chunk, false);
         held.settle(engine);
 
         assertFalse(engine.lightOnInColumn(SectionPos.asLong(chunk.x(), 0, chunk.z())));
@@ -150,7 +177,7 @@ class BulkEditTest {
         engine.updateSectionStatus(glowstone, false);
         held.settle(engine);
 
-        new Parent(engine).call("propagateLightSources", void.class, List.of(ChunkPos.class), chunk.getPos());
+        new VanillaParent(engine).call("propagateLightSources", void.class, List.of(ChunkPos.class), chunk.getPos());
         held.settle(engine);
 
         assertEquals(Blocks.GLOWSTONE.defaultBlockState().getLightEmission(), engine.getLayerListener(LightLayer.BLOCK).getLightValue(glowstone));
@@ -162,7 +189,7 @@ class BulkEditTest {
         BlockPos pos = new BlockPos(LOW, 0, LOW);
         ProtoChunk chunk = world.chunk(pos);
         FireflyLightEngine engine = new Held().create(world, true);
-        Parent parent = new Parent(engine);
+        VanillaParent parent = new VanillaParent(engine);
 
         parent.call("retainData", void.class, List.of(ChunkPos.class, boolean.class), chunk.getPos(), true);
         parent.call("queueSectionData", void.class, List.of(LightLayer.class, SectionPos.class, DataLayer.class), LightLayer.BLOCK, SectionPos.of(pos), new DataLayer(QUEUED));
@@ -179,7 +206,7 @@ class BulkEditTest {
         RandomSource random = RandomSource.create(seed * 31 + RANDOM_MIN_Y);
         List<TestWorld.Edit> edits = new ArrayList<>();
         for (int round = 0; round < RANDOM_ROUNDS; round++) {
-            List<TestWorld.Edit> box = randomBox(random, world);
+            List<TestWorld.Edit> box = world.randomBox(random);
             edits.addAll(box);
             box.forEach(world::set);
             unordered.settle(engine);
@@ -192,20 +219,7 @@ class BulkEditTest {
         return LightOracle.read("seed %d".formatted(seed), fromZero, engine);
     }
 
-    private static List<TestWorld.Edit> randomBox(RandomSource random, TestWorld world) {
-        int chunkX = random.nextInt(TestWorld.SIZE - 2);
-        int chunkZ = random.nextInt(TestWorld.SIZE - 2);
-        int sectionY = RANDOM_MIN_Y + 16 * random.nextInt(RANDOM_HEIGHT / 16);
-        BlockState state = random.nextInt(3) == 0 ? TestWorld.PALETTE.get(random.nextInt(TestWorld.PALETTE.size())) : Blocks.AIR.defaultBlockState();
-        int maxX = chunkX * 16 + 16 * (1 + random.nextInt(3)) - 1;
-        int maxY = Math.min(sectionY + 16 * (1 + random.nextInt(2)) - 1, world.maxBlockY());
-        int maxZ = chunkZ * 16 + 16 * (1 + random.nextInt(3)) - 1;
-        List<TestWorld.Edit> box = new ArrayList<>();
-        BlockPos.betweenClosed(chunkX * 16, sectionY, chunkZ * 16, maxX, maxY, maxZ).forEach(pos -> box.add(new TestWorld.Edit(pos.immutable(), state)));
-        return box;
-    }
-
-    private static void cutAndPaste(TestWorld world, LevelLightEngine engine, Consumer<BlockPos> check) {
+    private static List<BlockPos> cutAndPaste(TestWorld world, LevelLightEngine engine) {
         List<TestWorld.Edit> pasted = new ArrayList<>();
         List<TestWorld.Edit> cut = new ArrayList<>();
         for (BlockPos pos : BlockPos.betweenClosed(LOW, BOTTOM, LOW, HIGH, TOP, HIGH)) {
@@ -213,29 +227,13 @@ class BulkEditTest {
             cut.add(new TestWorld.Edit(pos.immutable(), Blocks.AIR.defaultBlockState()));
         }
 
-        cut.forEach(edit -> writeInSection(world, engine, edit, check));
-        pasted.forEach(edit -> writeInSection(world, engine, edit, check));
-    }
-
-    private static void writeInSection(TestWorld world, LevelLightEngine engine, TestWorld.Edit edit, Consumer<BlockPos> check) {
-        BlockPos pos = edit.pos();
-        ProtoChunk chunk = world.chunk(pos);
-        LevelChunkSection section = chunk.getSection(chunk.getSectionIndex(pos.getY()));
-        boolean wasEmpty = section.hasOnlyAir();
-        BlockState old = section.setBlockState(pos.getX() & 15, pos.getY() & 15, pos.getZ() & 15, edit.state());
-        if (wasEmpty != section.hasOnlyAir()) {
-            engine.updateSectionStatus(pos, !wasEmpty);
-        }
-
-        if (LightEngine.hasDifferentLightProperties(old, edit.state())) {
-            chunk.getSkyLightSources().update(chunk, pos.getX() & 15, pos.getY(), pos.getZ() & 15);
-            check.accept(pos);
-        }
+        AxiomBuffer buffer = new AxiomBuffer(world, engine, true);
+        return Stream.of(buffer.write(cut), buffer.write(pasted)).flatMap(changed -> changed.values().stream()).flatMap(List::stream).toList();
     }
 
     private static LevelLightEngine lightFromZero() {
         TestWorld reference = world();
-        cutAndPaste(reference, LevelLightEngine.EMPTY, _ -> {});
+        cutAndPaste(reference, LevelLightEngine.EMPTY);
         LevelLightEngine engine = LightOracle.VANILLA.create(reference, true);
         reference.light(engine, LightOracle.VANILLA);
         return engine;
@@ -243,21 +241,5 @@ class BulkEditTest {
 
     private static TestWorld world() {
         return new TestWorld(0, MIN_Y, HEIGHT, TestWorld.PALETTE);
-    }
-
-    private record Parent(FireflyLightEngine engine) {
-        private void call(String method, Class<?> result, List<Class<?>> parameters, Object... arguments) {
-            try {
-                handle(method, result, parameters).invokeWithArguments(arguments);
-            } catch (Throwable failure) {
-                throw new AssertionError(failure);
-            }
-        }
-
-        private MethodHandle handle(String method, Class<?> result, List<Class<?>> parameters) throws ReflectiveOperationException {
-            return MethodHandles.privateLookupIn(ThreadedLevelLightEngine.class, MethodHandles.lookup())
-                .findSpecial(LevelLightEngine.class, method, MethodType.methodType(result, parameters), ThreadedLevelLightEngine.class)
-                .bindTo(this.engine);
-        }
     }
 }

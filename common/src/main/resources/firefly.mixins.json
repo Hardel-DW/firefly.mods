@@ -3,6 +3,10 @@
 	"package": "fr.hardel.firefly.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
+		"AxiomFixAreaMixin",
+		"AxiomServerLevelMixin",
+		"AxiomSetBufferMixin",
+		"AxiomStarlightHelperMixin",
 		"ChunkAccessMixin",
 		"ChunkMapMixin",
 		"ChunkStatusTasksMixin",
@@ -11,6 +15,7 @@
 		"LevelLightEngineMixin",
 		"ProtoChunkMixin",
 		"SerializableChunkDataMixin",
+		"ThreadedLevelLightEngineMixin",
 		"WorldGenRegionMixin"
 	],
 	"injectors": {
