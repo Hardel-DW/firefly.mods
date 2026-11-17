@@ -3,3 +3,4 @@ accessible method net/minecraft/world/level/chunk/PalettedContainer get (I)Ljava
 accessible method net/minecraft/world/level/lighting/ChunkSkyLightSources set (II)V
 accessible method net/minecraft/world/level/lighting/ChunkSkyLightSources fill (I)V
 accessible field net/minecraft/world/level/lighting/ChunkSkyLightSources minY I
+accessible class net/minecraft/server/level/ThreadedLevelLightEngine$TaskType

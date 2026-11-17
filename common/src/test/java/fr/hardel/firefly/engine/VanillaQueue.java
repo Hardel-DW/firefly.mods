@@ -2,6 +2,7 @@ package fr.hardel.firefly.engine;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.IntSupplier;
 import net.minecraft.server.level.ChunkTaskDispatcher;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
@@ -28,16 +29,24 @@ final class VanillaQueue {
         return new ChunkTaskDispatcher(executor, Runnable::run);
     }
 
-    void addPreUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Runnable task) throws ReflectiveOperationException {
+    void addPreUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Runnable task) {
         add(engine, chunkX, chunkZ, this.preUpdate, task);
     }
 
-    void addPostUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Runnable task) throws ReflectiveOperationException {
+    void addPostUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Runnable task) {
         add(engine, chunkX, chunkZ, this.postUpdate, task);
     }
 
-    private void add(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Object type, Runnable task) throws ReflectiveOperationException {
-        this.addTask.invoke(engine, chunkX, chunkZ, (IntSupplier) () -> 0, type, task);
+    CompletableFuture<Void> waitForPostUpdate(ThreadedLevelLightEngine engine, int chunkX, int chunkZ) {
+        return CompletableFuture.runAsync(() -> {}, task -> addPostUpdate(engine, chunkX, chunkZ, task));
+    }
+
+    private void add(ThreadedLevelLightEngine engine, int chunkX, int chunkZ, Object type, Runnable task) {
+        try {
+            this.addTask.invoke(engine, chunkX, chunkZ, (IntSupplier) () -> 0, type, task);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static Object constant(Class<?> taskType, String name) throws ReflectiveOperationException {
