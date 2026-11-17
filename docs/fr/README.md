@@ -1,10 +1,11 @@
 # Firefly
-Le moteur de lumière est Monothread. Firefly remplace le moteur de lumière serveur vanilla par un moteur multithread, c'est tout. Aucune API, sauf `LightExecutor`, qui permet à un autre mod de prêter ses threads à Firefly. Firefly peut fonctionner avec ou sans Leafs, Leaf partage ces thread de chunks.
-Les mods **Moonrise**, **ScalableLux** sont incompatibles, ils remplacent eux aussi le moteur de lumière.
+Le moteur de lumière vanilla tourne sur un seul thread. Firefly remplace le moteur de lumière du serveur par un moteur multithread, et rien d'autre. Sa seule API est `LightExecutor`, qui permet à un autre mod de lui prêter ses threads. Firefly marche avec ou sans Leafs, et Leafs lui prête ses threads de chunks.
+Moonrise et ScalableLux remplacent eux aussi le moteur de lumière, donc ils sont incompatibles avec Firefly.
 
-## TOC
-1. [Vulgarisation.md](Vulgarisation.md) - Vulgarisation des concepts, et le fonctionnement de Firefly, de manière simple.
-2. [Methodologie.md](Methodologie.md) - Comment travailler dans le repo tester, mesurer, debuger.
-3. [Arborescence.md](Arborescence.md) - Les dossiers et leurs responsabilité.
-4. [Config.md](Config.md) - Ce que fait chaque option de config.
-5. [Benchmark.md](Benchmark.md) - Les résultat du benchmark, Explication des chiffres.
+## Sommaire
+1. [Vulgarisation.md](Vulgarisation.md) - Comment marche la lumière, et comment Firefly la calcule, simplement.
+2. [Decisions.md](Decisions.md) - Les règles que suit Firefly, pourquoi, et ses limites connues.
+3. [Methodologie.md](Methodologie.md) - Comment travailler dans le repo, tester, mesurer, debugger.
+4. [Arborescence.md](Arborescence.md) - Les dossiers et leur responsabilité.
+5. [Config.md](Config.md) - Ce que fait chaque option de config.
+6. [Benchmark.md](Benchmark.md) - Les résultats des benchs, et d'où viennent les chiffres.

@@ -1,9 +1,9 @@
 # Arborescence
-Un dossier est une responsabilité. Tout le code vit dans `common/src/main/java/fr/hardel/firefly/`. `fabric` et `neoforge` font rien de bien spéciale.
+Un dossier a une responsabilité. Tout le code vit dans `common/src/main/java/fr/hardel/firefly/`. `fabric` et `neoforge` ne font rien de particulier.
 - `engine/` - Le calcul de la lumière, une tâche par chunk.
-- `storage/` - Le stockage de la lumière du chunks.
-- `server/` - Le moteur firefly, Et la lecture de la lumière.
+- `storage/` - La lumière stockée sur chaque chunk.
+- `server/` - Le moteur Firefly, et la lecture de la lumière.
 - `schedule/` - Les threads, et `LightExecutor` pour utiliser ceux de Leafs.
-- `mixin/` - Les mixins tout simplement.
+- `mixin/` - Les mixins, dont le patch d'Axiom.
 
 Les tests sont dans `common/src/test` et `neoforge/src/test`.
