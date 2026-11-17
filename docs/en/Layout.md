@@ -4,6 +4,6 @@ One folder is one responsibility. All the code lives in `common/src/main/java/fr
 - `storage/` - The light stored on each chunk.
 - `server/` - The Firefly engine, and reading the light.
 - `schedule/` - The threads, and `LightExecutor` to use the Leafs ones.
-- `mixin/` - The mixins, simply.
+- `mixin/` - The mixins, including the Axiom patch.
 
 Tests live in `common/src/test` and `neoforge/src/test`.
