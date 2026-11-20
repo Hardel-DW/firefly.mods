@@ -57,8 +57,6 @@ public final class FireflyLightEngine extends ThreadedLevelLightEngine {
         this.light = new LevelLight(source, emission, hasSkyLight, minSection, getLightSectionCount());
         this.block = new LightReader(this, source, LightLayer.BLOCK, minSection);
         this.sky = hasSkyLight ? new LightReader(this, source, LightLayer.SKY, minSection) : null;
-        Firefly.LOGGER.info("Firefly lights {} sections with sky {}, emission {} and executor {}", getLightSectionCount(), hasSkyLight,
-            emission.getClass().getSimpleName(), executor.getClass().getSimpleName());
     }
 
     @Override
